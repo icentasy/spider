@@ -1,9 +1,18 @@
 # -*- coding: utf-8 -*-
 import time
+import platform
 from selenium import webdriver
 from bs4 import BeautifulSoup
 
-PhantomJS_PATH = r'C:\Users\Administrator\Desktop\phantomjs-2.0.0-windows\bin\phantomjs'
+import sys
+sys.path.append("../")
+
+from spider.model.base import City, Deal
+
+if platform.system() == 'Windows':
+	PhantomJS_PATH = r'C:\Users\Administrator\Desktop\phantomjs-2.0.0-windows\bin\phantomjs'
+else:
+	PhantomJS_PATH = '/usr/local/bin/phantomjs'
 LOG_PATH = r'C:\Users\Administrator\Desktop\phantomjs.log'
 crawl_url = 'http://www.tuan800.com/%s/%s/page/%i'
 city_list_url = 'http://www.tuan800.com/cities'
@@ -12,7 +21,6 @@ TYPE_LIST = ['meishitianxia']
 
 def init_driver():
 	return webdriver.PhantomJS(executable_path=PhantomJS_PATH)
-	#return webdriver.Chrome(executable_path=r'C:\Users\Administrator\AppData\Local\Google\Chrome\Application\chrome')
 
 
 def driver_quit(driver):
@@ -57,7 +65,7 @@ def get_content(source, city, _type, driver):
 	for deal_div in deal_divs:
 		try:
 			deal_dic = {}
-			deal_dic['imag'] = deal_div.find('img').attrs['src']
+			deal_dic['image'] = deal_div.find('img').attrs['src']
 			deal_dic['title'] = deal_div.find('div', attrs={'class': 'sitetpy'}).find('a').text
 			info = deal_div.find('div', attrs={'class': 'info info2'})
 			if not info:
