@@ -1,10 +1,10 @@
 import sys
-sys.path.append("../../")
+#sys.path.append("../../")
 from sqlalchemy import Column
 from sqlalchemy.types import VARCHAR, Integer, Float
 from sqlalchemy.ext.declarative import declarative_base
 
-from spider.model import engine
+from spider.model import engine, session
 
 BaseModel = declarative_base()
 
@@ -39,6 +39,15 @@ class City(BaseModel):
     name = Column(VARCHAR(255))
 
 
+def save_list(table, content_list):
+    try:
+        session.execute(table.__table__.insert(), content_list)
+        session.commit()
+        return True
+    except Exception as e:
+        return False
+
+init_db()
 
 if __name__ == '__main__':
     init_db()

@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
+import sys
+sys.path.append("../")
 import time
 import platform
 from selenium import webdriver
 from bs4 import BeautifulSoup
 
-import sys
-sys.path.append("../")
-
-from spider.model.base import City, Deal
+from spider.model.base import City, Deal, save_list
 
 if platform.system() == 'Windows':
 	PhantomJS_PATH = r'C:\Users\Administrator\Desktop\phantomjs-2.0.0-windows\bin\phantomjs'
@@ -32,21 +31,17 @@ def download_source(driver, url):
 	return driver.page_source
 
 
-def save2mysql():
-	pass
-
-
 def get_city_list(source):
 	soup = BeautifulSoup(source)
 	lists = soup.find('div', attrs={'class': 'tuan_City'}).findAll('dl')
 	res_list = []
-	citys = {}
+	citys = []
 	for dl in lists:
 		first_char = dl.find('span').text
-		cities[first_char] = []
 		for city in dl.findAll('a'):
-			cities[first_char].append((city.attrs['city'], city.text))
+			citys.append({'first_char': first_char, 'pinyin': city.attrs['city'], 'name': city.text})
 			res_list.append(city.attrs['city'])
+	save_list(City, citys)
 	return res_list
 
 
@@ -75,7 +70,7 @@ def get_content(source, city, _type, driver):
 			deal_dic['detail'] = out_link.text
 			deal_dic['out_link'] = out_link.attrs['href']
 			deal_dic['new_price'] = deal_div.find('h5').find('b').text
-			deal_dic['old_price'] = deal_div.find('h5').find('em').text
+			deal_dic['old_price'] = deal_div.find('h5').find('em').text[3:]
 			deal_dic['location'] = deal_div.find('h6').text
 			deal_dic['city'] = city
 			deal_dic['type'] = _type
@@ -84,7 +79,7 @@ def get_content(source, city, _type, driver):
 			print e
 			print "info:%s" % info
 			print "res:%s" % deal_dic
-	#save2mysql(res)
+	save_list(Deal, res)
 
 	page_list = soup.find('div', attrs={'class': 'list_page l'})
 	if not page_list:
@@ -118,6 +113,7 @@ def main():
 if __name__ == '__main__':
 	driver = init_driver()
 	start = time.time()
+	#get_city_list(download_source(driver, city_list_url))
 	isContinue = get_content(download_source(driver, crawl_url % ('wuhan', 'meishitianxia', 1)), 'wuhan', 'meishitianxia', driver)
 	end = time.time()
 	print round(end - start, 4)
