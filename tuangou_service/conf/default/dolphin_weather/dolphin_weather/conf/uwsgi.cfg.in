@@ -1,0 +1,15 @@
+[uwsgi]
+processes = %(uwsgi_processes)s 
+stats = %(uwsgi_stats)s 
+socket = %(uwsgi_socket)s 
+max-requests = %(uwsgi_max-requests)s
+log-slow = %(uwsgi_log-slow)s 
+module = %(uwsgi_module)s 
+callable = %(uwsgi_callable)s
+enable-threads = %(uwsgi_enable-threads)s 
+reload-on-as = %(uwsgi_reload-on-as)s 
+harakiri = %(uwsgi_harakiri)s 
+daemonize = %(uwsgi_daemonize)s 
+master = %(uwsgi_master)s 
+disable-logging = %(uwsgi_disable-logging)s 
+listen = %(uwsgi_listen)s 

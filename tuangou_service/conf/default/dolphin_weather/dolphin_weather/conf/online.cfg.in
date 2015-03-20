@@ -1,0 +1,11 @@
+[dolphin-weather-service]
+debug = %(cfg_debug)s
+mysql_config = %(cfg_mysql_conf)s
+mongo_config = %(cfg_mongo_conf)s 
+redis_host = %(cfg_redis_host)s 
+redis_port = %(cfg_redis_port)s 
+celery_broker = %(cfg_celery_broker)s
+log_root = %(cfg_log_root)s 
+push_host = %(cfg_push_host)s
+push_app_id = %(cfg_push_app_id)s
+push_app_secret = %(cfg_push_app_secret)s
