@@ -29,6 +29,8 @@ class Deal(BaseModel):
     location = Column(VARCHAR(255))
     city = Column(VARCHAR(255))
     type = Column(VARCHAR(255))
+    type_detail = Column(VARCHAR(255))
+    invalid_time = Column(VARCHAR(255))
 
 
 class City(BaseModel):
@@ -46,6 +48,9 @@ def save_list(table, content_list):
         return True
     except Exception as e:
         return False
+
+def get_city_from_mysql():
+    return session.query(City).all()
 
 init_db()
 

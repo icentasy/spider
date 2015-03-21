@@ -6,7 +6,7 @@ import platform
 from selenium import webdriver
 from bs4 import BeautifulSoup
 
-from spider.model.base import City, Deal, save_list
+from spider.model.base import City, Deal, save_list, get_city_from_mysql
 
 if platform.system() == 'Windows':
 	PhantomJS_PATH = r'C:\Users\Administrator\Desktop\phantomjs-2.0.0-windows\bin\phantomjs'
@@ -27,7 +27,14 @@ def driver_quit(driver):
 	
 
 def download_source(driver, url):
-	driver.get(url)
+	driver.set_page_load_timeout(60)
+	while True:
+		try:
+			driver.get(url)
+			break
+		except Exception:
+			print 'time out'
+			continue
 	return driver.page_source
 
 
@@ -51,70 +58,95 @@ def get_out_link(source):
 
 
 def get_content(source, city, _type, driver):
-	time.sleep(3)
 	res = []
-	soup = BeautifulSoup(source)
-	big_div = soup.find('div', attrs={'class': 'deal_980 l bigdeal'})
-	deal_divs = big_div.findAll('div', attrs={'class': 'deal dealbig deal_h'})
-	deal_divs.extend(big_div.findAll('div', attrs={'class': 'deal dealbig'}))
-	for deal_div in deal_divs:
-		try:
-			deal_dic = {}
-			deal_dic['image'] = deal_div.find('img').attrs['src']
-			deal_dic['title'] = deal_div.find('div', attrs={'class': 'sitetpy'}).find('a').text
-			info = deal_div.find('div', attrs={'class': 'info info2'})
-			if not info:
-				info = deal_div.find('div', attrs={'class': 'info'})
-			deal_dic['source'] = info.find('h4').text
-			out_link = info.find('a', attrs={'rel': 'nofollow'})
-			deal_dic['detail'] = out_link.text
-			deal_dic['out_link'] = out_link.attrs['href']
-			deal_dic['new_price'] = deal_div.find('h5').find('b').text
-			deal_dic['old_price'] = deal_div.find('h5').find('em').text[3:]
-			deal_dic['location'] = deal_div.find('h6').text
-			deal_dic['city'] = city
-			deal_dic['type'] = _type
-			res.append(deal_dic)
-		except Exception as e:
-			print e
-			print "info:%s" % info
-			print "res:%s" % deal_dic
-	save_list(Deal, res)
+	try:
+		soup = BeautifulSoup(source)
+		big_div = soup.find('div', attrs={'class': 'deal_980 l bigdeal'})
+		deal_divs = big_div.findAll('div', attrs={'class': 'deal dealbig deal_h'})
+		deal_divs.extend(big_div.findAll('div', attrs={'class': 'deal dealbig'}))
+		for deal_div in deal_divs:
+			try:
+				deal_dic = {}
+				deal_dic['image'] = deal_div.find('img').attrs['src']
+				deal_dic['title'] = deal_div.find('div', attrs={'class': 'sitetpy'}).find('a').text
+				info = deal_div.find('div', attrs={'class': 'info info2'})
+				if not info:
+					info = deal_div.find('div', attrs={'class': 'info'})
+				deal_dic['source'] = info.find('h4').text
+				out_link = info.find('a', attrs={'rel': 'nofollow'})
+				deal_dic['detail'] = out_link.text
+				deal_dic['out_link'] = out_link.attrs['href']
+				deal_dic['new_price'] = deal_div.find('h5').find('b').text
+				deal_dic['old_price'] = deal_div.find('h5').find('em').text[3:]
+				deal_dic['location'] = deal_div.find('h6').text
+				deal_dic['city'] = city
+				deal_dic['type'] = _type
+				res.append(deal_dic)
+			except Exception as e:
+				print "info:%s" % info
+				print "res:%s" % deal_dic
+				return [], 0
+	except Exception as e:
+		return [], 0
 
 	page_list = soup.find('div', attrs={'class': 'list_page l'})
 	if not page_list:
-		return False
-	if page_list.findAll('span')[-1].text == u'下页':
-		return False
-	elif page_list.findAll('a')[-1].text == u'下页':
-		return True
-	else:
-		print page_list
-		print 'unknown next page'
-		return False
-		
+		return res, 0
+	tags = page_list.findAll('span')[-2: -1]
+	tags.extend(page_list.findAll('a')[-2: -1])
+	last_page = 0
+	for tag in tags:
+		try:
+			temp_int = int(tag.text)
+			if temp_int > last_page:
+				last_page = temp_int
+		except Exception:
+			continue
+	return res, last_page
 
-def main():
-	driver = init_driver()
-	city_list = get_city_list(download_source(city_list_url))
-	for city in city_list:
-		for _type in TYPE_LIST:
-			i = 1
-			while True:
-				source = download_source(driver, crawl_url % (city, _type, i))
-				isContinue = get_content(source, city, _type, driver)
-				if isContinue:
-					i += 1
-					continue
-				else:
-					break
+
+def begin_from_to(items, from_city, to_city='zz'):
+	res = []
+	for item in items:
+		if item.pinyin < from_city:
+			continue
+		if item.pinyin > to_city:
+			break
+		res.append(item)
+	return res
 
 
 if __name__ == '__main__':
 	driver = init_driver()
-	start = time.time()
+	last_request = 0
+	
+	for city_dic in begin_from_to(get_city_from_mysql(), 'anshan', 'aomen'):
+		pinyin = city_dic.pinyin
+		print pinyin
+		if pinyin:
+			for _type in ['shenghuoyule']:
+				i = 1
+				while True:
+					temp_time = time.time() - last_request
+					if temp_time < 5:
+						time.sleep(5 - temp_time)
+
+					source = download_source(driver, crawl_url % (pinyin, _type, i))
+					print crawl_url % (pinyin, _type, i)
+					last_request = time.time()
+					res, last_page = get_content(source, pinyin, _type, driver)
+					if res:
+						save_list(Deal, res)
+					else:
+						print 'fail'
+
+					if i >= last_page:
+						break
+					else:
+						i += 1
+						continue
+	
 	#get_city_list(download_source(driver, city_list_url))
-	isContinue = get_content(download_source(driver, crawl_url % ('wuhan', 'meishitianxia', 1)), 'wuhan', 'meishitianxia', driver)
-	end = time.time()
-	print round(end - start, 4)
+	#res, last_page = get_content(download_source(driver, crawl_url % ('anqing', 'meishitianxia', 29)), 'anqing', 'meishitianxia', driver)
+	#print last_page
 	driver_quit(driver)
