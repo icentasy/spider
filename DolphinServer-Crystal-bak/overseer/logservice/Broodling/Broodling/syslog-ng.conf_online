@@ -1,0 +1,518 @@
+@version: 3.5
+@include "scl.conf"
+@include "`scl-root`/system/tty10.conf"
+
+# Syslog-ng configuration file, compatible with default Debian syslogd
+# installation.
+
+# First, set some global options.
+options { chain_hostnames(off); flush_lines(0); use_dns(no); use_fqdn(no);
+	  owner("root"); group("adm"); perm(0640); stats_freq(0);
+	  bad_hostname("^gconfd$");
+};
+
+########################
+# Sources
+########################
+# This is the default behavior of sysklogd package
+# Logs may come from unix stream, but not from another machine.
+#
+source s_src {
+       system();
+       internal();
+};
+
+# If you wish to get logs from remote machine you should uncomment
+# this and comment the above source line.
+#
+#source s_net { tcp(ip(127.0.0.1) port(1000)); };
+
+########################
+# Destinations
+########################
+# First some standard logfile
+#
+destination d_auth { file("/var/log/auth.log"); };
+destination d_cron { file("/var/log/cron.log"); };
+destination d_daemon { file("/var/log/daemon.log"); };
+destination d_kern { file("/var/log/kern.log"); };
+destination d_lpr { file("/var/log/lpr.log"); };
+destination d_mail { file("/var/log/mail.log"); };
+destination d_syslog { file("/var/log/syslog"); };
+destination d_user { file("/var/log/user.log"); };
+destination d_uucp { file("/var/log/uucp.log"); };
+
+# This files are the log come from the mail subsystem.
+#
+destination d_mailinfo { file("/var/log/mail.info"); };
+destination d_mailwarn { file("/var/log/mail.warn"); };
+destination d_mailerr { file("/var/log/mail.err"); };
+
+# Logging for INN news system
+#
+destination d_newscrit { file("/var/log/news/news.crit"); };
+destination d_newserr { file("/var/log/news/news.err"); };
+destination d_newsnotice { file("/var/log/news/news.notice"); };
+
+# Some `catch-all' logfiles.
+#
+destination d_debug { file("/var/log/debug"); };
+destination d_error { file("/var/log/error"); };
+destination d_messages { file("/var/log/messages"); };
+
+# The root's console.
+#
+destination d_console { usertty("root"); };
+
+# Virtual console.
+#
+destination d_console_all { file(`tty10`); };
+
+# The named pipe /dev/xconsole is for the nsole' utility.  To use it,
+# you must invoke nsole' with the -file' option:
+#
+#    $ xconsole -file /dev/xconsole [...]
+#
+destination d_xconsole { pipe("/dev/xconsole"); };
+
+# Send the messages to an other host
+#
+#destination d_net { tcp("127.0.0.1" port(1000) log_fifo_size(1000)); };
+
+# Debian only
+destination d_ppp { file("/var/log/ppp.log"); };
+
+########################
+# Filters
+########################
+# Here's come the filter options. With this rules, we can set which 
+# message go where.
+
+filter f_dbg { level(debug); };
+filter f_info { level(info); };
+filter f_notice { level(notice); };
+filter f_warn { level(warn); };
+filter f_err { level(err); };
+filter f_crit { level(crit .. emerg); };
+
+filter f_debug { level(debug) and not facility(auth, authpriv, news, mail); };
+filter f_error { level(err .. emerg) ; };
+filter f_messages { level(info,notice,warn) and 
+                    not facility(auth,authpriv,cron,daemon,mail,news); };
+
+filter f_auth { facility(auth, authpriv) and not filter(f_debug); };
+filter f_cron { facility(cron) and not filter(f_debug); };
+filter f_daemon { facility(daemon) and not filter(f_debug); };
+filter f_kern { facility(kern) and not filter(f_debug); };
+filter f_lpr { facility(lpr) and not filter(f_debug); };
+filter f_local { facility(local0, local1, local3, local4, local5,
+                        local6, local7) and not filter(f_debug); };
+filter f_mail { facility(mail) and not filter(f_debug); };
+filter f_news { facility(news) and not filter(f_debug); };
+filter f_syslog3 { not facility(auth, authpriv, mail) and not filter(f_debug); };
+filter f_user { facility(user) and not filter(f_debug); };
+filter f_uucp { facility(uucp) and not filter(f_debug); };
+
+filter f_cnews { level(notice, err, crit) and facility(news); };
+filter f_cother { level(debug, info, notice, warn) or facility(daemon, mail); };
+
+filter f_ppp { facility(local2) and not filter(f_debug); };
+filter f_console { level(warn .. emerg); };
+
+########################
+# Log paths
+########################
+log { source(s_src); filter(f_auth); destination(d_auth); };
+log { source(s_src); filter(f_cron); destination(d_cron); };
+log { source(s_src); filter(f_daemon); destination(d_daemon); };
+log { source(s_src); filter(f_kern); destination(d_kern); };
+log { source(s_src); filter(f_lpr); destination(d_lpr); };
+log { source(s_src); filter(f_syslog3); destination(d_syslog); };
+log { source(s_src); filter(f_user); destination(d_user); };
+log { source(s_src); filter(f_uucp); destination(d_uucp); };
+
+log { source(s_src); filter(f_mail); destination(d_mail); };
+#log { source(s_src); filter(f_mail); filter(f_info); destination(d_mailinfo); };
+#log { source(s_src); filter(f_mail); filter(f_warn); destination(d_mailwarn); };
+#log { source(s_src); filter(f_mail); filter(f_err); destination(d_mailerr); };
+
+log { source(s_src); filter(f_news); filter(f_crit); destination(d_newscrit); };
+log { source(s_src); filter(f_news); filter(f_err); destination(d_newserr); };
+log { source(s_src); filter(f_news); filter(f_notice); destination(d_newsnotice); };
+#log { source(s_src); filter(f_cnews); destination(d_console_all); };
+#log { source(s_src); filter(f_cother); destination(d_console_all); };
+
+#log { source(s_src); filter(f_ppp); destination(d_ppp); };
+
+log { source(s_src); filter(f_debug); destination(d_debug); };
+log { source(s_src); filter(f_error); destination(d_error); };
+log { source(s_src); filter(f_messages); destination(d_messages); };
+
+log { source(s_src); filter(f_console); destination(d_console_all);
+				    destination(d_xconsole); };
+log { source(s_src); filter(f_crit); destination(d_console); };
+
+# All messages send to a remote site
+#
+#log { source(s_src); destination(d_net); };
+
+###
+# Include all config files in /etc/syslog-ng/conf.d/
+###
+@include "/etc/syslog-ng/conf.d/*.conf"
+@define listen_ip "0.0.0.0"
+
+#dolphinop
+@define dolphinop_path "/mnt/log/dolphinop/"
+
+source s_dolphinop_nginx_access { tcp(ip(`listen_ip`) port(9300)); };
+source s_dolphinop_error { tcp(ip(`listen_ip`) port(9301)); };
+source s_dolphinop_uwsgi { tcp(ip(`listen_ip`) port(9302)); };
+source s_dolphinop_db   { tcp(ip(`listen_ip`) port(9303)); };
+source s_dolphinop_provision    { tcp(ip(`listen_ip`) port(9304)); };
+
+destination d_dolphinop_nginx_access { file("`dolphinop_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinop_error { file("`dolphinop_path`$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinop_uwsgi { file("`dolphinop_path`$YEAR-$MONTH-$DAY/uwsgi.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinop_db { file("`dolphinop_path`$YEAR-$MONTH-$DAY/db.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinop_provision { file("`dolphinop_path`$YEAR-$MONTH-$DAY/provision.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+
+log { source(s_dolphinop_nginx_access); destination(d_dolphinop_nginx_access); };
+log { source(s_dolphinop_error); destination(d_dolphinop_error); };
+log { source(s_dolphinop_uwsgi); destination(d_dolphinop_uwsgi); };
+log { source(s_dolphinop_db); destination(d_dolphinop_db); };
+log { source(s_dolphinop_provision); destination(d_dolphinop_provision); };
+#dolphinop end
+
+#dolphins2s start
+@define dolphins2s_path "/mnt/log/dolphins2s/"
+
+source s_dolphins2s_nginx_access { tcp(ip(0.0.0.0) port(9311)); };
+destination d_dolphins2s_nginx_access { file("`dolphins2s_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+log { source(s_dolphins2s_nginx_access); destination(d_dolphins2s_nginx_access); };
+#dolphins2s end
+
+#dolphin_news
+@define dolphin_news_path "/mnt/log/dolphin_news/"
+
+source s_dolphin_news_nginx_access { tcp(ip(0.0.0.0) port(9401)); };
+destination d_dolphin_news_nginx_access { file("`dolphin_news_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+log { source(s_dolphin_news_nginx_access); destination(d_dolphin_news_nginx_access); };
+
+source s_dolphin_news_track { tcp(ip(0.0.0.0) port(9402)); };
+destination d_dolphin_news_track { file("`dolphin_news_path`$YEAR-$MONTH-$DAY/news_track.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+log { source(s_dolphin_news_track); destination(d_dolphin_news_track); };
+#dolphin_news end
+
+#the config begin at here to the end is cp from old logserver(50.16.114.14)
+@define dolphinvoice_en_path "/mnt/log/dolphinvoice/dolphinvoice_en/"
+@define japanvoice_path "/mnt/log/dolphinvoice/japanvoice/"
+@define dolphinsync_path "/mnt/log/dolphinsync/"
+@define dolphinid_path "/mnt/log/dolphinid/"
+@define dolphinservice_path "/mnt/log/dolphinservice/"
+@define dolphinemail_path "/mnt/log/dolphinemail/"
+@define dolphinop_path "/mnt/log/dolphinop/"
+#@define dolphinpns_path "/mnt2/dolphinpns/"
+@define dolphinpns_path "/mnt/dolphinpns/"
+
+#dolphinvoice_en start
+source s_voice_en_info { tcp(ip(`listen_ip`) port(9000)); };
+source s_voice_en_error { tcp(ip(`listen_ip`) port(9001)); };
+source s_voice_en_nginx_access { tcp(ip(`listen_ip`) port(9002)); };
+source s_voice_en_nginx_error { tcp(ip(`listen_ip`) port(9003)); };
+
+filter name_test {
+        match("(voice input | voice output)" value("MESSAGE"));
+};
+
+destination d_voice_en_info { file("`dolphinvoice_en_path`$YEAR-$MONTH-$DAY/info.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_voice_en_error { file("`dolphinvoice_en_path`$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_voice_en_nginx_access { file("`dolphinvoice_en_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_voice_en_nginx_error { file("`dolphinvoice_en_path`$YEAR-$MONTH-$DAY/nginx.error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+
+log { source(s_voice_en_info); destination(d_voice_en_info); };
+log { source(s_voice_en_error); destination(d_voice_en_error); };
+#log { source(s_voice_en_nginx_access);filter(name_test); destination(d_voice_en_nginx_access); };
+log { source(s_voice_en_nginx_access); destination(d_voice_en_nginx_access); };
+log { source(s_voice_en_nginx_error); destination(d_voice_en_nginx_error); };
+#dolphinvoice_en end
+
+#japannesevoice start
+source s_japanvoice_info { tcp(ip(`listen_ip`) port(9008)); };
+source s_japanvoice_error { tcp(ip(`listen_ip`) port(9009)); };
+source s_japanvoice_nginx_access { tcp(ip(`listen_ip`) port(9010)); };
+#source s_japanvoice_nginx_error { tcp(ip(`listen_ip`) port(9011)); };
+destination d_japanvoice_info { file("`japanvoice_path`$YEAR-$MONTH-$DAY/info.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_japanvoice_error { file("`japanvoice_path`$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_japanvoice_nginx_access { file("`japanvoice_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#destination d_japanvoice_nginx_error { file("`japanvoice_path`$YEAR-$MONTH-$DAY/nginx.error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+log { source(s_japanvoice_info); destination(d_japanvoice_info); };
+log { source(s_japanvoice_error); destination(d_japanvoice_error); };
+log { source(s_japanvoice_nginx_access); destination(d_japanvoice_nginx_access); };
+#log { source(s_japanvoice_nginx_error); destination(d_japanvoice_nginx_error); };
+#japannesevoice end
+
+#dolphinsync start
+source s_dolphinsync_info { tcp(ip(`listen_ip`) port(9050)); };
+source s_dolphinsync_error { tcp(ip(`listen_ip`) port(9051)); };
+source s_dolphinsync_uwsgi { tcp(ip(`listen_ip`) port(9064)); };
+source s_dolphinsync_nginx_access { tcp(ip(`listen_ip`) port(9052)); };
+source s_dolphinsync_nginx_error { tcp(ip(`listen_ip`) port(9053)); };
+
+source s_dolphinsync_active { tcp(ip(`listen_ip`) port(9054)); };
+source s_dolphinsync_total { tcp(ip(`listen_ip`) port(9055)); };
+source s_dolphinsync_bookmark_total { tcp(ip(`listen_ip`) port(9056)); };
+source s_dolphinsync_tab_total { tcp(ip(`listen_ip`) port(9057)); };
+source s_dolphinsync_history_total { tcp(ip(`listen_ip`) port(9058)); };
+source s_dolphinsync_bookmark_subitem { tcp(ip(`listen_ip`) port(9059)); };
+source s_dolphinsync_tab_subitem { tcp(ip(`listen_ip`) port(9060)); };
+source s_dolphinsync_history_subitem { tcp(ip(`listen_ip`) port(9061)); };
+source s_dolphinsync_password_total { tcp(ip(`listen_ip`) port(9062)); };
+source s_dolphinsync_password_subitem { tcp(ip(`listen_ip`) port(9063)); };
+
+destination d_dolphinsync_info { file("`dolphinsync_path`$YEAR-$MONTH-$DAY/info.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinsync_error { file("`dolphinsync_path`$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinsync_uwsgi { file("`dolphinsync_path`$YEAR-$MONTH-$DAY/uwsgi.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinsync_nginx_access { file("`dolphinsync_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinsync_nginx_error { file("`dolphinsync_path`$YEAR-$MONTH-$DAY/nginx.error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+
+destination d_dolphinsync_active { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_userids.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_total { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_userids_sync.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_bookmark_total { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_bookmark.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_tab_total { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_tab.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_history_total { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_history.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_bookmark_subitem { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_active_bookmark.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_tab_subitem { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_active_tab.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_history_subitem { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_active_history.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_password_total { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_password.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinsync_password_subitem { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.DolphinSync_active_password.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+
+
+log { source(s_dolphinsync_info); destination(d_dolphinsync_info); };
+log { source(s_dolphinsync_error); destination(d_dolphinsync_error); };
+log { source(s_dolphinsync_uwsgi); destination(d_dolphinsync_uwsgi); };
+log { source(s_dolphinsync_nginx_access); destination(d_dolphinsync_nginx_access); };
+log { source(s_dolphinsync_nginx_error); destination(d_dolphinsync_nginx_error); };
+
+log { source(s_dolphinsync_active); destination(d_dolphinsync_active); };
+log { source(s_dolphinsync_total); destination(d_dolphinsync_total); };
+log { source(s_dolphinsync_bookmark_total); destination(d_dolphinsync_bookmark_total); };
+log { source(s_dolphinsync_tab_total); destination(d_dolphinsync_tab_total); };
+log { source(s_dolphinsync_history_total); destination(d_dolphinsync_history_total); };
+log { source(s_dolphinsync_bookmark_subitem); destination(d_dolphinsync_bookmark_subitem); };
+log { source(s_dolphinsync_tab_subitem); destination(d_dolphinsync_tab_subitem); };
+log { source(s_dolphinsync_history_subitem); destination(d_dolphinsync_history_subitem); };
+log { source(s_dolphinsync_password_total); destination(d_dolphinsync_password_total); };
+log { source(s_dolphinsync_password_subitem); destination(d_dolphinsync_password_subitem); };
+#dolphinsync end
+
+#dolphinid start
+source s_dolphinid_info { tcp(ip(`listen_ip`) port(9101)); };
+source s_dolphinid_error { tcp(ip(`listen_ip`) port(9102)); };
+source s_dolphinid_uwsgi { tcp(ip(`listen_ip`) port(9109)); };
+source s_dolphinid_info2 { tcp(ip(`listen_ip`) port(9103)); };
+source s_dolphinid_error2 { tcp(ip(`listen_ip`) port(9104)); };
+source s_dolphinid_nginx_access { tcp(ip(`listen_ip`) port(9105)); };
+source s_dolphinid_nginx_error { tcp(ip(`listen_ip`) port(9106)); };
+
+source s_mongo_active_count { tcp(ip(`listen_ip`) port(9107)); };
+source s_mongo_count { tcp(ip(`listen_ip`) port(9108)); };
+
+destination d_dolphinid_info { file("`dolphinid_path`$YEAR-$MONTH-$DAY/info.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinid_error { file("`dolphinid_path`$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinid_uwsgi { file("`dolphinid_path`$YEAR-$MONTH-$DAY/uwsgi.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinid_info2 { file("`dolphinid_path`$YEAR-$MONTH-$DAY/info.log2" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinid_error2 { file("`dolphinid_path`$YEAR-$MONTH-$DAY/error.log2" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinid_nginx_access { file("`dolphinid_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+destination d_dolphinid_nginx_error { file("`dolphinid_path`$YEAR-$MONTH-$DAY/nginx.error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+
+destination d_mongo_active_count { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.mongo_active_count.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_mongo_count { file("`dolphinservice_path`/$YEAR-$MONTH-$DAY.mongo_count.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+
+log { source(s_dolphinid_info); destination(d_dolphinid_info); };
+log { source(s_dolphinid_error); destination(d_dolphinid_error); };
+log { source(s_dolphinid_uwsgi); destination(d_dolphinid_uwsgi); };
+log { source(s_dolphinid_info2); destination(d_dolphinid_info2); };
+log { source(s_dolphinid_error2); destination(d_dolphinid_error2); };
+log { source(s_dolphinid_nginx_access); destination(d_dolphinid_nginx_access); };
+log { source(s_dolphinid_nginx_error); destination(d_dolphinid_nginx_error); };
+
+log { source(s_mongo_active_count); destination(d_mongo_active_count); };
+log { source(s_mongo_count); destination(d_mongo_count); };
+#dolphinid end
+
+#dolphinemail start
+source s_dolphinemail_info { tcp(ip(`listen_ip`) port(9150)); };
+source s_dolphinemail_error { tcp(ip(`listen_ip`) port(9151)); };
+source s_dolphinemail_daemon_send { tcp(ip(`listen_ip`) port(9152)); };
+source s_dolphinemail_sql { tcp(ip(`listen_ip`) port(9153)); };
+
+destination d_dolphinemail_info { file("`dolphinemail_path`/$YEAR-$MONTH-$DAY/info.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinemail_error { file("`dolphinemail_path`/$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinemail_daemon_send { file("`dolphinemail_path`/$YEAR-$MONTH-$DAY/daemon.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination d_dolphinemail_sql { file("`dolphinemail_path`/$YEAR-$MONTH-$DAY/sql.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+
+log { source(s_dolphinemail_info); destination(d_dolphinemail_info); };
+log { source(s_dolphinemail_error); destination(d_dolphinemail_error); };
+log { source(s_dolphinemail_daemon_send); destination(d_dolphinemail_daemon_send); };
+log { source(s_dolphinemail_sql); destination(d_dolphinemail_sql); };
+#dolphinemail end
+
+@define dolphin_cn "/mnt/log/dolphin_cn"
+
+#cn logserver to logserver
+source ss_mail { tcp(ip(0.0.0.0) port(9180)); };
+source ss_error { tcp(ip(0.0.0.0) port(9181)); };
+source ss_info-access { tcp(ip(0.0.0.0) port(9182)); };
+source ss_info_not_200 { tcp(ip(0.0.0.0) port(9183)); };
+source ss_ip { tcp(ip(0.0.0.0) port(9184)); };
+source ss_nginx_error { tcp(ip(0.0.0.0) port(9185)); };
+source ss_nginx_not_200 { tcp(ip(0.0.0.0) port(9186)); };
+source ss_time_more_than-06 { tcp(ip(0.0.0.0) port(9187)); };
+source ss_sync_html { tcp(ip(0.0.0.0) port(9188)); };
+source ss_id_html { tcp(ip(0.0.0.0) port(9189)); };
+source ss_simple { tcp(ip(0.0.0.0) port(9190)); };
+
+destination dd_mail { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/mail.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_error { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/error.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_info-access { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/info-access.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_info_not_200 { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/info_not_200.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_ip { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/ip.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_nginx_error { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/nginx.error.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_nginx_not_200 { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/nginx_not_200.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_time_more_than-06 { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/time_more_than-06.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_sync_html { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/sync.html" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_id_html { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/id.html" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+destination dd_simple { file("`dolphin_cn`/$YEAR-$MONTH-$DAY/info-access-simple.txt" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG\n")); };
+
+log { source(ss_mail); destination(dd_mail); };
+log { source(ss_error); destination(dd_error); };
+log { source(ss_info-access); destination(dd_info-access); };
+log { source(ss_info_not_200); destination(dd_info_not_200); };
+log { source(ss_ip); destination(dd_ip); };
+log { source(ss_nginx_error); destination(dd_nginx_error); };
+log { source(ss_nginx_not_200); destination(dd_nginx_not_200); };
+log { source(ss_time_more_than-06); destination(dd_time_more_than-06); };
+log { source(ss_sync_html); destination(dd_sync_html); };
+log { source(ss_id_html); destination(dd_id_html); };
+log { source(ss_simple); destination(dd_simple); };
+#cn logserver to logserver end
+
+
+# public ip 50.16.114.14
+
+#dolphincache_en start
+source s_urltrack_0 { tcp(ip(0.0.0.0) port(9200)); };
+source s_urltrack_1 { tcp(ip(0.0.0.0) port(9201)); };
+source s_urltrack_2 { tcp(ip(0.0.0.0) port(9202)); };
+source s_urltrack_3 { tcp(ip(0.0.0.0) port(9203)); };
+
+destination d_urltrack_0 { file("/mnt/log/dolphincache/$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes)); };
+destination d_urltrack_1 { file("/mnt/log/dolphincache/$YEAR-$MONTH-$DAY/nginx.error.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes)); };
+destination d_urltrack_2 { file("/mnt/log/dolphincache/$YEAR-$MONTH-$DAY/lua.info.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes)); };
+destination d_urltrack_3 { file("/mnt/log/dolphincache/$YEAR-$MONTH-$DAY/lua.error.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes)); };
+
+log { source(s_urltrack_0); destination(d_urltrack_0); };
+log { source(s_urltrack_1); destination(d_urltrack_1); };
+log { source(s_urltrack_2); destination(d_urltrack_2); };
+log { source(s_urltrack_3); destination(d_urltrack_3); };
+#dolphincache_en end
+
+
+#dolphinpushservice start
+source s_pushservice_info { tcp(ip(0.0.0.0) port(9210)); };
+source s_pushservice_err { tcp(ip(0.0.0.0) port(9211)); };
+source s_pushservice_uwsgi { tcp(ip(0.0.0.0) port(9212)); };
+source s_pushservice_track { tcp(ip(0.0.0.0) port(9213)); };
+
+destination d_pushservice_info { file("/mnt/log/dolphinpushservice/$YEAR-$MONTH-$DAY/info.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); };
+destination d_pushservice_err { file("/mnt/log/dolphinpushservice/$YEAR-$MONTH-$DAY/err.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); };
+destination d_pushservice_uwsgi { file("/mnt/log/dolphinpushservice/$YEAR-$MONTH-$DAY/uwsgi.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); };
+destination d_pushservice_track { file("/mnt/log/dolphinpushservice/$YEAR-$MONTH-$DAY/worker.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); };
+
+filter level_info{
+	match("(INFO|WARN|ERROR)" value("MESSAGE"));
+};
+log { source(s_pushservice_info); destination(d_pushservice_info); };
+log { source(s_pushservice_err); destination(d_pushservice_err); };
+log { source(s_pushservice_uwsgi); destination(d_pushservice_uwsgi); };
+log { source(s_pushservice_track); filter(level_info); destination(d_pushservice_track); };
+#dolphinpushservice end
+
+
+#dolphinpushserver start
+source s_pushserver { tcp(ip(0.0.0.0) port(9220)); };
+source s_pushserver_cometd { tcp(ip(0.0.0.0) port(9221)); };
+source s_pushserver_core { tcp(ip(0.0.0.0) port(9222)); };
+
+
+#test
+filter join_j {
+	match("processJoin" value("MESSAGE"));
+};
+
+
+#test
+filter name1 {
+	match("processJoin" value("MESSAGE")) or match("processTabPush" value("MESSAGE")) or match("processAffirm" value("MESSAGE")) or match("Tab Push from userid" value("MESSAGE"));
+};
+
+filter name {
+        match("(DolphinStat)" value("MESSAGE"));
+};
+
+destination d_pushserver { file("/mnt2/dolphinpushserver/$YEAR-$MONTH-$DAY/webapp.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); };
+destination d_pushserver_core { file("/mnt2/dolphinpushserver/$YEAR-$MONTH-$DAY/core.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); };
+destination d_pushserver_cometd { file("/mnt2/dolphinpushserver/$YEAR-$MONTH-$DAY/cometd_access.log"  owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n")); }
+;
+
+log { source(s_pushserver); filter(name); destination(d_pushserver); };
+log { source(s_pushserver_core); filter(name); destination(d_pushserver_core); };
+log { source(s_pushserver_cometd); filter(name); destination(d_pushserver_cometd); };
+#dolphinpushserver end
+
+#dolphin pushnotification
+source s_dolphinpns_nginx_access { tcp(ip(`listen_ip`) port(9500)); };
+destination d_dolphinpns_nginx_access { file("`dolphinpns_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+log { source(s_dolphinpns_nginx_access); destination(d_dolphinpns_nginx_access); };
+#dolphin pushnotification end
+
+#dolphinop start
+#source s_dolphinop_nginx_access { tcp(ip(`listen_ip`) port(9300)); };
+#source s_dolphinop_error { tcp(ip(`listen_ip`) port(9301)); };
+#source s_dolphinop_uwsgi { tcp(ip(`listen_ip`) port(9302)); }; 
+#source s_dolphinop_db	{ tcp(ip(`listen_ip`) port(9303)); };
+#source s_dolphinop_provision	{ tcp(ip(`listen_ip`) port(9304)); };
+#destination d_dolphinop_nginx_access { file("`dolphinop_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#destination d_dolphinop_error { file("`dolphinop_path`$YEAR-$MONTH-$DAY/error.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#destination d_dolphinop_uwsgi { file("`dolphinop_path`$YEAR-$MONTH-$DAY/uwsgi.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#destination d_dolphinop_db { file("`dolphinop_path`$YEAR-$MONTH-$DAY/db.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#destination d_dolphinop_provision { file("`dolphinop_path`$YEAR-$MONTH-$DAY/provision.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#log { source(s_dolphinop_nginx_access); destination(d_dolphinop_nginx_access); };
+#log { source(s_dolphinop_error); destination(d_dolphinop_error); };
+#log { source(s_dolphinop_uwsgi); destination(d_dolphinop_uwsgi); };
+#log { source(s_dolphinop_db); destination(d_dolphinop_db); };
+#log { source(s_dolphinop_provision); destination(d_dolphinop_provision); };
+#destination d_dolphinop_nginx_access_B { tcp(10.69.65.247 port(9300) template("$MSGHDR$MSG    $HOST\n")); };
+#destination d_dolphinop_error_B { tcp(10.69.65.247 port(9301)  template("$MSGHDR$MSG    $HOST\n")); }; 
+#destination d_dolphinop_uwsgi_B { tcp(10.69.65.247 port(9302)  template("$MSGHDR$MSG    $HOST\n")); }; 
+#destination d_dolphinop_db_B { tcp(10.69.65.247 port(9303)  template("$MSGHDR$MSG    $HOST\n")); }; 
+#destination d_dolphinop_provision_B { tcp(10.69.65.247 port(9304)  template("$MSGHDR$MSG    $HOST\n")); }; 
+#log { source(s_dolphinop_nginx_access); destination(d_dolphinop_nginx_access_B); };
+#log { source(s_dolphinop_error); destination(d_dolphinop_error_B); };
+#log { source(s_dolphinop_uwsgi); destination(d_dolphinop_uwsgi_B); };
+#log { source(s_dolphinop_db); destination(d_dolphinop_db_B); };
+#log { source(s_dolphinop_provision); destination(d_dolphinop_provision_B); };
+#dolphinop end
+
+#dolphin_news start
+#@define dolphin_news_path "/mnt2/dolphin_news/"
+#
+#source s_dolphin_news_nginx_access { tcp(ip(0.0.0.0) port(9401)); };
+#destination d_dolphin_news_nginx_access { file("`dolphin_news_path`$YEAR-$MONTH-$DAY/nginx.access.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#log { source(s_dolphin_news_nginx_access); destination(d_dolphin_news_nginx_access); };
+#
+#source s_dolphin_news_track { tcp(ip(0.0.0.0) port(9402)); };
+#destination d_dolphin_news_track { file("`dolphin_news_path`$YEAR-$MONTH-$DAY/news_track.log" owner("ubuntu") group("ubuntu") perm(0755) dir_perm(0755) create_dirs(yes) template("$MSGHDR$MSG    $HOST\n"));};
+#log { source(s_dolphin_news_track); destination(d_dolphin_news_track); };
+#dolphin_news end

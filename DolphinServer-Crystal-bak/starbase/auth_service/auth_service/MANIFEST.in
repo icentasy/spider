@@ -1,0 +1,2 @@
+global-include *.cfg *.xml *.jar
+graft scripts

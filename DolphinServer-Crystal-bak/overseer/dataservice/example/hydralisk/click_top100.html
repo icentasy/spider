@@ -1,0 +1,30 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+　<head>
+　　<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+　　<title>Daily News Top 100 Report</title>
+　　<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+　</head>
+<body>
+    <p>The following is Top 100 news data categorized by country:</p>
+    {% for table in table_list %}
+        <h3>{{ ['Turkey', 'Russia', 'Japan', 'Saudi Arabia'][loop.index0] }}:</h3>
+        <table border="1" style="padding: 5px 15px 5px 5px;text-align: center;border-collapse:collapse; font-family: Arial,Helvetica,sans-serif;">
+            <tr style="background-color: #CCCCCC;">
+            {% for header in table.headers %}
+                <th> {{ header }} </th>
+            {% endfor %}
+            </tr>
+            {% for row in table.rows %}
+            <tr>
+                {% for data in row %}
+                    <td>{{ data }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </table>
+        <br>
+    {% endfor %}
+
+    <p>That's all.</p>
+</body>
+</html>

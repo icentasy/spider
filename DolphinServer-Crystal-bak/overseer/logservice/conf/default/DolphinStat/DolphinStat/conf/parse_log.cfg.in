@@ -1,0 +1,38 @@
+[statistics]
+rule_str = %(cfg_rule_str)s
+record_file = %(cfg_record_file)s
+service_ip = %(cfg_service_ip)s
+poll_list = %(cfg_poll_list)s
+
+[worker]
+worker_list = %(cfg_worker_list)s
+log_path = %(cfg_worker_log_path)s 
+max_bytes = %(cfg_worker_max_bytes)s 
+bc = %(cfg_worker_bc)s
+level = %(cfg_worker_level)s
+
+[log]
+log_path = %(cfg_log_path)s 
+max_bytes = %(cfg_max_bytes)s 
+bc = %(cfg_bc)s
+level = %(cfg_level)s
+
+[mysql]
+host = %(cfg_mysql_host)s 
+port = %(cfg_mysql_port)s 
+username = %(cfg_mysql_username)s
+password = %(cfg_mysql_password)s 
+dbname = %(cfg_mysql_dbname)s 
+
+[mail]
+mail_server = %(cfg_mail_server)s 
+mail_user = %(cfg_mail_user)s 
+mail_password = %(cfg_mail_password)s 
+mail_from = %(cfg_mail_from)s 
+mail_to = %(cfg_mail_to)s 
+
+[rabbitmq]
+host = %(cfg_rabbit_host)s 
+userid = %(cfg_rabbit_userid)s 
+password = %(cfg_rabbit_password)s 
+vhost = %(cfg_rabbit_vhost)s 

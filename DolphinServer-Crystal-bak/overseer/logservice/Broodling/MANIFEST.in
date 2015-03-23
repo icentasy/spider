@@ -1,0 +1,4 @@
+global-include *.py *.sh *.xml *.cfg *.logrotate *.ap2 *.cron *.conf *.mo *.po
+graft Broodling/conf
+graft Broodling/log
+graft Broodling/util

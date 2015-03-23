@@ -1,0 +1,33 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+　<head>
+　　<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+　　<title>Auto Daily News Crawler Report</title>
+　　<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+　</head>
+<body>
+    <p>This is just a test email, the following shoud be some base64 image:</p>
+    {% for chart in image_list %}
+        <p><img src="{{ chart }}" alt="" /></p>
+    {% endfor %}
+    <p>The following should be a table</p>
+
+    {% for table in table_list %}
+        <table border="1" style="padding: 5px 15px 5px 5px;text-align: center;border-collapse:collapse; font-family: Arial,Helvetica,sans-serif;">
+            <tr style="background-color: #CCCCCC;">
+            {% for header in table.headers %}
+                <th> {{ header }} </th>
+            {% endfor %}
+            </tr>
+            {% for row in table.rows %}
+            <tr>
+                {% for data in row %}
+                    <td>{{ data }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </table>
+    {% endfor %}
+
+    <p>Here is the End.</p>
+</body>
+</html>

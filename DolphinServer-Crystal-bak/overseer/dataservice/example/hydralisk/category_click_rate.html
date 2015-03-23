@@ -1,0 +1,18 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+　<head>
+　　<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+　　<title>Daily News Click Rate Report</title>
+　　<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+　</head>
+<body>
+    <p>The following is click rate grouped by category from different country:</p>
+    <p>See category code means <a href="http://mirrors.baina.com/wiki/doku.php?id=dolphin_news:tabs">here</a></p>
+    {% for chart in image_list %}
+        <h3>{{ ['Turkey', 'Russia', 'Japan', 'Saudi Arabia'][loop.index0] }}:</h3>
+        <p><img src="{{ chart }}" alt="" /></p>
+        <br>
+    {% endfor %}
+
+    <p>That's all.</p>
+</body>
+</html>

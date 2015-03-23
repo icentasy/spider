@@ -1,0 +1,6 @@
+[rule-console-service]
+debug = %(cfg_debug)s
+mongo_config = %(cfg_mongo_conf)s 
+log_root = %(cfg_log_root)s 
+http_port = %(cfg_http_port)s
+page_limit=%(cfg_page_limit)s

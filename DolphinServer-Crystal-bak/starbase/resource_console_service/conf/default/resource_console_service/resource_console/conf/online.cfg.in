@@ -1,0 +1,16 @@
+[resource-console-service]
+debug = %(cfg_debug)s
+mongo_config = %(cfg_mongo_conf)s 
+log_root = %(cfg_log_root)s 
+http_port = %(cfg_http_port)s
+page_limit=%(cfg_page_limit)s
+admin_production = %(admin_production_conf)s
+host=%(url)s
+db_conn_local = %(cfg_db_conn_local)s
+db_conn_ec2 = %(cfg_db_conn_ec2)s
+web_env_ec2 = %(web_env_ec2_conf)s
+web_env_local = %(web_env_local_conf)s
+domain_env_ec2 = %(domain_env_ec2_conf)s
+domain_env_local = %(domain_env_local_conf)s
+s3_env_local = %(s3_env_local_conf)s
+s3_env_ec2 = %(s3_env_ec2_conf)s
