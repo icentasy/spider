@@ -8,7 +8,7 @@ from armory.marine.respcode import CONTENT_NOT_FOUND, PARAM_ERROR
 from tuangou.api import request, app
 from tuangou.view.city import get_city_list
 from tuangou.utils.common import get_valid_params
-from tuangou.decorator import exception_handler, perf_logging
+from tuangou.decorator import exception_handler, perf_logging, access_control
 from tuangou.settings import API_PREF
 
 
@@ -18,6 +18,7 @@ API_HOT_CITY = API_PREF + '/city'
 
 
 @app.route(API_HOT_CITY, methods=['GET', ])
+@access_control
 @exception_handler
 @perf_logging
 def hot_city():

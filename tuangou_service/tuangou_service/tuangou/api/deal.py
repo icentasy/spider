@@ -9,7 +9,7 @@ from tuangou.api import request, app
 from tuangou.view.deal import get_deal_list
 from tuangou.utils.common import get_valid_params
 from tuangou.utils.constant import DEAL_PARAM
-from tuangou.decorator import exception_handler, perf_logging
+from tuangou.decorator import exception_handler, perf_logging, access_control
 from tuangou.settings import API_PREF
 
 
@@ -19,6 +19,7 @@ API_DEAL = API_PREF + '/deal/<city>/<dealtype>'
 
 
 @app.route(API_DEAL, methods=['GET', ])
+@access_control
 @exception_handler
 @perf_logging
 def deal_info(city, dealtype):
