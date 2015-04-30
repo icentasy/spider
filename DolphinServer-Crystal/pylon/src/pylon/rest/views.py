@@ -30,7 +30,6 @@ import warnings
 
 from flask import current_app
 from flask import json
-from flask import jsonify as _jsonify
 from flask import request
 from flask.views import MethodView
 from mimerender import FlaskMimeRender
@@ -39,6 +38,7 @@ from sqlalchemy.exc import DataError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.associationproxy import AssociationProxy
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.exc import MultipleResultsFound
@@ -47,6 +47,8 @@ from sqlalchemy.orm.query import Query
 from werkzeug.exceptions import BadRequest
 from werkzeug.exceptions import HTTPException
 from werkzeug.urls import url_quote_plus
+from pymongo.errors import PyMongoError
+from mongokit import ObjectId
 
 from .helpers import count
 from .helpers import evaluate_functions
@@ -64,9 +66,10 @@ from .helpers import strings_to_dates
 from .helpers import to_dict
 from .helpers import upper_keys
 from .helpers import get_related_association_proxy_model
-from .search import search
+from .search import search, QueryBuilder
 from .respcode import RespCode
 
+from armory.marine.json import ArmoryJson
 #: Format string for creating Link headers in paginated responses.
 LINKTEMPLATE = '<{0}?page={1}&results_per_page={2}>; rel="{3}"'
 
@@ -77,6 +80,89 @@ _HEADERS = '__restless_headers'
 #: String used internally as a dictionary key for passing status code
 #: information from view functions to the :func:`jsonpify` function.
 _STATUS = '__restless_status_code'
+
+
+class Paginator(object):
+    def __init__(self, cursor, page=1, limit=10):
+        self._cursor = cursor
+        self._count = self._cursor.count(True) if cursor else 0
+        self._limit = limit
+        self._page = int(page)
+        self._set_page(self._page)
+
+    @property
+    def items(self):
+        return self._cursor
+
+    @property
+    def is_paginated(self):
+        return self.num_pages > 1
+
+    @property
+    def start_index(self):
+        if self._page == 1:
+            return 1
+        if self._limit == 1:
+            return self._page
+        return ((self._page - 1) * self._limit) + 1
+
+    @property
+    def end_index(self):
+        if self._limit == 1:
+            return self._page
+
+        if self._page == 1:
+            return self._count if self._count < self._limit else self._limit
+
+        calc_end = (self._page * self._limit)
+        return calc_end if calc_end < self._count else self._count
+
+    @property
+    def current_page(self):
+        return self._page
+
+    @property
+    def previous_page(self):
+        return self._page - 1
+
+    @property
+    def next_page(self):
+        return self._page + 1
+
+    @property
+    def has_next(self):
+        return self.end_index < self._count
+
+    @property
+    def has_previous(self):
+        return self.start_index - self._limit >= 0
+
+    @property
+    def page_range(self):
+        return [p for p in xrange(1, self.num_pages + 1)]
+
+    @property
+    def num_pages(self):
+        if self._count <= 0:
+            return 0
+        if self._count <= self._limit:
+            return 1
+
+        pages_f = self._count / float(self._limit)
+        pages_i = int(pages_f)
+
+        return (pages_i + 1) if pages_f > pages_i else pages_i
+
+    @property
+    def count(self):
+        return self._count
+
+    def _set_page(self, page_num):
+        if self._page > 1:
+            self._cursor.skip(self.start_index - 1)
+
+        if self._cursor:
+            self._cursor.limit(self._limit)
 
 
 class ProcessingException(HTTPException):
@@ -189,7 +275,8 @@ def catch_integrity_errors(session):
             try:
                 return func(*args, **kw)
             # TODO should `sqlalchemy.exc.InvalidRequestError`s also be caught?
-            except (DataError, IntegrityError, ProgrammingError) as exception:
+            except (DataError, IntegrityError,
+                    ProgrammingError, OperationalError) as exception:
                 session.rollback()
                 current_app.logger.exception(str(exception))
                 return {
@@ -220,7 +307,8 @@ def jsonify(*args, **kw):
     the response. ``headers`` must be a dictionary mapping strings to strings.
 
     """
-    response = _jsonify(*args, **kw)
+    response = current_app.response_class(ArmoryJson.encode(
+        dict(*args, **kw)), mimetype='application/json')
     if 'headers' in kw:
         set_headers(response, kw['headers'])
     return response
@@ -461,6 +549,7 @@ class ModelView(MethodView):
         """
         super(ModelView, self).__init__(*args, **kw)
         self.model = model
+        self.db_type = getattr(model, '__db_type__', 'sqlorm')
         self.session = model.__session__
 
     def query(self, model=None):
@@ -491,7 +580,7 @@ class FunctionAPI(ModelView):
         :ref:`functionevaluation`.
 
         """
-        if 'q' not in request.args or not request.args.get('q'):
+        if not request.args.get('q'):
             return {'status': RespCode.PARAM_REQUIRED,
                     'msg': 'Empty query parameter', }
         # if parsing JSON fails, return a DATA_ERROR status
@@ -505,8 +594,8 @@ class FunctionAPI(ModelView):
             result = evaluate_functions(self.session, self.model,
                                         data.get('functions', []))
             if not result:
-                return {'status': RespCode.OK, 'msg': '', 'data': {'items': {}}}
-            return {'status': RespCode.OK, 'msg': '', 'data': {'items': result}}
+                return {'status': RespCode.OK, 'data': {'items': {}}}
+            return {'status': RespCode.OK, 'data': {'items': result}}
         except AttributeError as exception:
             current_app.logger.exception(str(exception))
             message = 'No such field "{0}"'.format(exception.field)
@@ -773,7 +862,7 @@ class API(ModelView):
         if isinstance(toadd, dict):
             toadd = [toadd]
         for dictionary in toadd or []:
-            subinst = get_or_create(self.session, submodel, dictionary)
+            subinst = get_or_create(submodel, dictionary)
             try:
                 for instance in query:
                     getattr(instance, relationname).append(subinst)
@@ -813,7 +902,7 @@ class API(ModelView):
             if 'id' in dictionary:
                 subinst = get_by(self.session, submodel, dictionary['id'])
             else:
-                subinst = self.query(submodel).filter_by(**dictionary).first()
+                subinst = submodel.query.filter_by(**dictionary).first()
             for instance in query:
                 getattr(instance, relationname).remove(subinst)
             if remove:
@@ -844,9 +933,9 @@ class API(ModelView):
         """
         submodel = get_related_model(self.model, relationname)
         if isinstance(toset, list):
-            value = [get_or_create(self.session, submodel, d) for d in toset]
+            value = [get_or_create(submodel, d) for d in toset]
         else:
-            value = get_or_create(self.session, submodel, toset)
+            value = get_or_create(submodel, toset)
         for instance in query:
             setattr(instance, relationname, value)
 
@@ -891,8 +980,8 @@ class API(ModelView):
         tochange = frozenset(relations) & frozenset(params)
         for columnname in tochange:
             # Check if 'add' or 'remove' is being used
-            if (isinstance(params[columnname], dict)
-                    and any(k in params[columnname] for k in ['add', 'remove'])):
+            if (isinstance(params[columnname], dict) and any(
+                    k in params[columnname] for k in ['add', 'remove'])):
 
                 toadd = params[columnname].get('add', [])
                 toremove = params[columnname].get('remove', [])
@@ -933,6 +1022,13 @@ class API(ModelView):
         if results_per_page <= 0:
             results_per_page = self.results_per_page
         return min(results_per_page, self.max_results_per_page)
+
+    def _paginator_mongo(self, query):
+        limit = self._compute_results_per_page()
+        page_num = int(request.args.get('page', 1))
+        p = Paginator(query, page_num, limit)
+        p.page_limit = limit
+        return p
 
     # TODO it is ugly to have `deep` as an arg here; can we remove it?
     def _paginated(self, instances, deep):
@@ -1039,8 +1135,7 @@ class API(ModelView):
             if type(data[col]) == list:
                 # model has several related objects
                 for subparams in data[col]:
-                    subinst = get_or_create(self.session, submodel,
-                                            subparams)
+                    subinst = get_or_create(submodel, subparams)
                     try:
                         getattr(instance, col).append(subinst)
                     except AttributeError:
@@ -1048,8 +1143,7 @@ class API(ModelView):
                         attribute[subinst.key] = subinst.value
             else:
                 # model has single related object
-                subinst = get_or_create(self.session, submodel,
-                                        data[col])
+                subinst = get_or_create(submodel, data[col])
                 setattr(instance, col, subinst)
 
         return instance
@@ -1065,6 +1159,122 @@ class API(ModelView):
         if inst is None:
             return {'status': RespCode.DATA_ERROR, 'msg': 'no specified model'}
         return self._inst_to_dict(inst)
+
+    def _search_mongo(self, search_params):
+        """Search from mongodb using mongokit.
+        """
+        try:
+            query = search(self.model, search_params)
+            paginated_query = self._paginator_mongo(query)
+        except PyMongoError as e:
+            current_app.logger.exception(str(e))
+            return {'msg': 'Mongo Search Error',
+                    'status': RespCode.DATA_ERROR}
+
+        url = create_link_string(paginated_query.current_page,
+                                 paginated_query.page_range[-1],
+                                 paginated_query.page_limit)
+        headers = dict(Location=url)
+        # Fix bug about mongokit, fork mongokit and rewrite logic for it better
+        result = {
+            'status': RespCode.OK,
+            'data': {
+                'items': [k for k in paginated_query.items],
+                'num_results': paginated_query.count,
+                'page': paginated_query.current_page,
+                'total_pages': paginated_query.num_pages,
+            }
+        }
+        return result, headers
+
+    def _search_sql(self, search_params):
+        """Search from sql using sqlalchemy"""
+        # resolve date-strings as required by the model
+        for param in search_params.get('filters', list()):
+            if 'name' in param and 'val' in param:
+                query_model = self.model
+                query_field = param['name']
+                if '__' in param['name']:
+                    fieldname, relation = param['name'].split('__')
+                    submodel = getattr(self.model, fieldname)
+                    if isinstance(submodel, InstrumentedAttribute):
+                        query_model = submodel.property.mapper.class_
+                        query_field = relation
+                    elif isinstance(submodel, AssociationProxy):
+                        # For the sake of brevity, rename this function.
+                        get_assoc = get_related_association_proxy_model
+                        query_model = get_assoc(submodel)
+                        query_field = relation
+                to_convert = {query_field: param['val']}
+                try:
+                    result = strings_to_dates(query_model, to_convert)
+                except ValueError as exception:
+                    current_app.logger.exception(str(exception))
+                    return {'msg': 'Unable to construct query',
+                            'status': RespCode.DATA_ERROR}
+                param['val'] = result.get(query_field)
+
+        # perform a filtered search
+        try:
+            result = search(self.model, search_params)
+        except NoResultFound:
+            return {'msg': 'No result found', 'status': RespCode.DATA_ERROR}
+        except MultipleResultsFound:
+            return {'msg': 'Multiple results found',
+                    'status': RespCode.DATA_ERROR}
+        except Exception as exception:
+            current_app.logger.exception(str(exception))
+            return {'msg': 'Unable to construct query',
+                    'status': RespCode.DATA_ERROR}
+
+        # create a placeholder for the relations of the returned models
+        relations = frozenset(get_relations(self.model))
+        # do not follow relations that will not be included in the response
+        if self.include_columns is not None:
+            cols = frozenset(self.include_columns)
+            rels = frozenset(self.include_relations)
+            relations &= (cols | rels)
+        elif self.exclude_columns is not None:
+            relations -= frozenset(self.exclude_columns)
+        deep = dict((r, {}) for r in relations)
+
+        # for security purposes, don't transmit list as top-level JSON
+        if isinstance(result, Query):
+            try:
+                result = self._paginated(result, deep)
+            except Exception:
+                return {'msg': 'paginate error!',
+                        'status': RespCode.DATA_ERROR}
+            # Create the Link header.
+            #
+            # TODO We are already calling self._compute_results_per_page() once
+            # in _paginated(); don't compute it again here.
+            page, last_page = result['page'], result['total_pages']
+            linkstring = create_link_string(page, last_page,
+                                            self._compute_results_per_page())
+            headers = dict(Link=linkstring)
+        else:
+            primary_key = self.primary_key or primary_key_name(result)
+            result = to_dict(result, deep, exclude=self.exclude_columns,
+                             exclude_relations=self.exclude_relations,
+                             include=self.include_columns,
+                             include_relations=self.include_relations,
+                             include_methods=self.include_methods)
+            # The URL at which a client can access the instance matching this
+            # search query.
+            url = '{0}/{1}'.format(request.base_url, result[primary_key])
+            headers = dict(Location=url)
+
+        result = {
+            'status': RespCode.OK,
+            'data': {
+                'items': result['objects'],
+                'num_results': result['num_results'],
+                'page': result['page'],
+                'total_pages': result['total_pages'],
+            }
+        }
+        return result, headers
 
     def _search(self):
         """Defines a generic search function for the database model.
@@ -1142,80 +1352,19 @@ class API(ModelView):
 
         for preprocessor in self.preprocessors['GET_MANY']:
             preprocessor(search_params=search_params)
+        if self.db_type == 'sqlorm':
+            query_result = self._search_sql(search_params)
+        elif self.db_type == 'mongo':
+            query_result = self._search_mongo(search_params)
 
-        # resolve date-strings as required by the model
-        for param in search_params.get('filters', list()):
-            if 'name' in param and 'val' in param:
-                query_model = self.model
-                query_field = param['name']
-                if '__' in param['name']:
-                    fieldname, relation = param['name'].split('__')
-                    submodel = getattr(self.model, fieldname)
-                    if isinstance(submodel, InstrumentedAttribute):
-                        query_model = submodel.property.mapper.class_
-                        query_field = relation
-                    elif isinstance(submodel, AssociationProxy):
-                        # For the sake of brevity, rename this function.
-                        get_assoc = get_related_association_proxy_model
-                        query_model = get_assoc(submodel)
-                        query_field = relation
-                to_convert = {query_field: param['val']}
-                try:
-                    result = strings_to_dates(query_model, to_convert)
-                except ValueError as exception:
-                    current_app.logger.exception(str(exception))
-                    return {'msg': 'Unable to construct query',
-                            'status': RespCode.DATA_ERROR}
-                param['val'] = result.get(query_field)
-
-        # perform a filtered search
-        try:
-            result = search(self.model, search_params)
-        except NoResultFound:
-            return {'msg': 'No result found', 'status': RespCode.DATA_ERROR}
-        except MultipleResultsFound:
-            return {'msg': 'Multiple results found', 'status': RespCode.DATA_ERROR}
-        except Exception as exception:
-            current_app.logger.exception(str(exception))
-            return {'msg': 'Unable to construct query', 'status': RespCode.DATA_ERROR}
-
-        # create a placeholder for the relations of the returned models
-        relations = frozenset(get_relations(self.model))
-        # do not follow relations that will not be included in the response
-        if self.include_columns is not None:
-            cols = frozenset(self.include_columns)
-            rels = frozenset(self.include_relations)
-            relations &= (cols | rels)
-        elif self.exclude_columns is not None:
-            relations -= frozenset(self.exclude_columns)
-        deep = dict((r, {}) for r in relations)
-
-        # for security purposes, don't transmit list as top-level JSON
-        if isinstance(result, Query):
-            result = self._paginated(result, deep)
-            # Create the Link header.
-            #
-            # TODO We are already calling self._compute_results_per_page() once
-            # in _paginated(); don't compute it again here.
-            page, last_page = result['page'], result['total_pages']
-            linkstring = create_link_string(page, last_page,
-                                            self._compute_results_per_page())
-            headers = dict(Link=linkstring)
+        if isinstance(query_result, dict):
+            return query_result
         else:
-            primary_key = self.primary_key or primary_key_name(result)
-            result = to_dict(result, deep, exclude=self.exclude_columns,
-                             exclude_relations=self.exclude_relations,
-                             include=self.include_columns,
-                             include_relations=self.include_relations,
-                             include_methods=self.include_methods)
-            # The URL at which a client can access the instance matching this
-            # search query.
-            url = '{0}/{1}'.format(request.base_url, result[primary_key])
-            headers = dict(Location=url)
+            result, headers = query_result
 
-        result = {'status': RespCode.OK, 'data': {'items': result}}
         for postprocessor in self.postprocessors['GET_MANY']:
-            postprocessor(result=result, search_params=search_params)
+            postprocessor(result=result, search_params=search_params,
+                          model=self.model)
 
         # HACK Provide the headers directly in the result dictionary, so that
         # the :func:`jsonpify` function has access to them. See the note there
@@ -1259,7 +1408,7 @@ class API(ModelView):
         # get the value of the relation specified by `relationname`.
         if relationname is None:
             result = self.serialize(instance)
-        else:
+        elif self.db_type == 'sqlorm':
             related_value = getattr(instance, relationname)
             # create a placeholder for the relations of the returned models
             related_model = get_related_model(self.model, relationname)
@@ -1302,13 +1451,19 @@ class API(ModelView):
             search_params = json.loads(request.args.get('q', '{}'))
         except (TypeError, ValueError, OverflowError) as exception:
             current_app.logger.exception(str(exception))
-            return {'msg': 'Unable to decode search query', 'status': RespCode.DATA_ERROR}
+            return {'msg': 'Unable to decode search query',
+                    'status': RespCode.DATA_ERROR}
 
         for preprocessor in self.preprocessors['DELETE_MANY']:
             preprocessor(search_params=search_params)
 
-        # perform a filtered search
-        try:
+        if self.db_type == 'mongo':
+            filters = QueryBuilder.create_mongokit_filters(
+                self.model, search_params)
+            removed = self.session.collection.remove(filters, safe=True)
+            num_deleted = removed['n']
+        elif self.db_type == 'sqlorm':
+            # perform a filtered search
             # HACK We need to ignore any ``order_by`` request from the client,
             # because for some reason, SQLAlchemy does not allow calling
             # delete() on a query that has an ``order_by()`` on it. If you
@@ -1317,33 +1472,40 @@ class API(ModelView):
             #     sqlalchemy.exc.InvalidRequestError: Can't call Query.delete()
             #     when order_by() has been called
             #
-            result = search(self.model, search_params)
-        except NoResultFound:
-            return {'msg': 'No result found', 'status': RespCode.DATA_ERROR}
-        except MultipleResultsFound:
-            return {'msg': 'Multiple results found', 'status': RespCode.DATA_ERROR}
-        except Exception as exception:
-            current_app.logger.exception(str(exception))
-            return {'msg': 'Unable to construct query', 'status': RespCode.DATA_ERROR}
+            try:
+                result = search(self.model, search_params)
+            except NoResultFound:
+                return {'msg': 'No result found',
+                        'status': RespCode.DATA_ERROR}
+            except MultipleResultsFound:
+                return {'msg': 'Multiple results found',
+                        'status': RespCode.DATA_ERROR}
+            except Exception as exception:
+                current_app.logger.exception(str(exception))
+                return {'msg': 'Unable to construct query',
+                        'status': RespCode.DATA_ERROR}
 
-        # for security purposes, don't transmit list as top-level JSON
-        if isinstance(result, Query):
+            # for security purposes, don't transmit list as top-level JSON
+
             # Implementation note: `synchronize_session=False`, described in
             # the SQLAlchemy documentation for
             # :meth:`sqlalchemy.orm.query.Query.delete`, states that this is
             # the most efficient option for bulk deletion, and is reliable once
             # the session has expired, which occurs after the session commit
             # below.
-            num_deleted = result.delete(synchronize_session=False)
-        else:
             self.session.begin()
-            self.session.delete(result)
-            num_deleted = 1
-        self.session.commit()
+            if isinstance(result, Query):
+                num_deleted = result.delete(synchronize_session=False)
+            else:
+                self.session.delete(result)
+                num_deleted = 1
+            self.session.commit()
+
         result = dict(status=RespCode.OK, data={'num_deleted': num_deleted})
         for postprocessor in self.postprocessors['DELETE_MANY']:
             postprocessor(result=result, search_params=search_params)
-        return result if num_deleted > 0 else {'msg': 'delete nothing', 'status': RespCode.DATA_ERROR}
+        return result if num_deleted > 0 else {
+            'msg': 'delete nothing', 'status': RespCode.DATA_ERROR}
 
     def delete(self, instid, relationname, relationinstid):
         """Removes the specified instance of the model with the specified name
@@ -1369,6 +1531,7 @@ class API(ModelView):
             # delete many instances of the model via a search with possible
             # filters.
             return self._delete_many()
+
         was_deleted = False
         for preprocessor in self.preprocessors['DELETE_SINGLE']:
             temp_result = preprocessor(instance_id=instid,
@@ -1377,30 +1540,38 @@ class API(ModelView):
             # See the note under the preprocessor in the get() method.
             if temp_result is not None:
                 instid = temp_result
-        inst = get_by(self.session, self.model, instid, self.primary_key)
-        if relationname:
-            # If the request is ``DELETE /api/person/1/computers``, error 400.
-            if not relationinstid:
-                msg = ('Cannot DELETE entire "{0}"'
-                       ' relation').format(relationname)
-                return dict(msg=msg, status=RespCode.DATA_ERROR)
-            # Otherwise, get the related instance to delete.
-            relation = getattr(inst, relationname)
-            related_model = get_related_model(self.model, relationname)
-            relation_instance = get_by(self.session, related_model,
-                                       relationinstid)
-            # Removes an object from the relation list.
-            relation.remove(relation_instance)
-            was_deleted = len(self.session.dirty) > 0
-        elif inst is not None:
-            self.session.begin()
-            self.session.delete(inst)
-            was_deleted = len(self.session.deleted) > 0
-        self.session.commit()
+
+        if self.db_type == 'mongo':
+            field_type = self.model.structure.get('_id', ObjectId)
+            result = self.session.collection.remove(
+                {'_id': field_type(instid)}, safe=True)
+            was_deleted = (result['n'] > 0)
+        elif self.db_type == 'sqlorm':
+            inst = get_by(self.session, self.model, instid, self.primary_key)
+            if relationname:
+                # If the request is ``DELETE /api/person/1/computers``, error
+                if not relationinstid:
+                    msg = ('Cannot DELETE entire "{0}"'
+                           ' relation').format(relationname)
+                    return dict(msg=msg, status=RespCode.DATA_ERROR)
+                # Otherwise, get the related instance to delete.
+                relation = getattr(inst, relationname)
+                related_model = get_related_model(self.model, relationname)
+                relation_instance = get_by(self.session, related_model,
+                                           relationinstid)
+                # Removes an object from the relation list.
+                relation.remove(relation_instance)
+                was_deleted = len(self.session.dirty) > 0
+            elif inst is not None:
+                self.session.begin()
+                self.session.delete(inst)
+                was_deleted = len(self.session.deleted) > 0
+                self.session.commit()
+
         for postprocessor in self.postprocessors['DELETE_SINGLE']:
             postprocessor(was_deleted=was_deleted)
-        return {'status': RespCode.OK} if was_deleted else \
-            {'status': RespCode.DATA_ERROR, 'msg': 'delete nothing'}
+        return {'status': RespCode.OK} if was_deleted else {
+            'status': RespCode.DATA_ERROR, 'msg': 'delete nothing'}
 
     def post(self):
         """Creates a new instance of a given model based on request data.
@@ -1443,33 +1614,46 @@ class API(ModelView):
                 data = request.get_json() or {}
         except (BadRequest, TypeError, ValueError, OverflowError) as exception:
             current_app.logger.exception(str(exception))
-            return dict(msg='Unable to decode data', status=RespCode.DATA_ERROR)
+            return dict(msg='Unable to decode data',
+                        status=RespCode.DATA_ERROR)
 
         # apply any preprocessors to the POST arguments
         for preprocessor in self.preprocessors['POST']:
             preprocessor(data=data)
 
-        try:
-            # Convert the dictionary representation into an instance of the
-            # model.
-            instance = self.deserialize(data)
-            # Add the created model to the session.
-            self.session.begin()
-            self.session.add(instance)
-            self.session.commit()
-            # Get the dictionary representation of the new instance as it
-            # appears in the database.
-            result = self.serialize(instance)
-        except self.validation_exceptions as exception:
-            return self._handle_validation_exception(exception)
-        # Determine the value of the primary key for this instance and
-        # encode URL-encode it (in case it is a Unicode string).
-        pk_name = self.primary_key or primary_key_name(instance)
-        primary_key = result[pk_name]
-        try:
-            primary_key = str(primary_key)
-        except UnicodeEncodeError:
-            primary_key = url_quote_plus(primary_key.encode('utf-8'))
+        if self.db_type == 'mongo':
+            try:
+                doc = self.session()
+                doc.update(data)
+                doc.save()
+                result = dict(doc)
+                primary_key = '_id'
+            except Exception as e:
+                current_app.logger.exception(str(e))
+                return {'status': RespCode.DATA_ERROR, 'msg': str(e)}
+        elif self.db_type == 'sqlorm':
+            try:
+                # Convert the dictionary representation into an instance of the
+                # model.
+                instance = self.deserialize(data)
+                # Add the created model to the session.
+                self.session.begin()
+                self.session.add(instance)
+                self.session.commit()
+                # Get the dictionary representation of the new instance as it
+                # appears in the database.
+                result = self.serialize(instance)
+            except self.validation_exceptions as exception:
+                return self._handle_validation_exception(exception)
+            # Determine the value of the primary key for this instance and
+            # encode URL-encode it (in case it is a Unicode string).
+            pk_name = self.primary_key or primary_key_name(instance)
+            primary_key = result[pk_name]
+            try:
+                primary_key = str(primary_key)
+            except UnicodeEncodeError:
+                primary_key = url_quote_plus(primary_key.encode('utf-8'))
+
         # The URL at which a client can access the newly created instance
         # of the model.
         url = '{0}/{1}'.format(request.base_url, primary_key)
@@ -1527,7 +1711,8 @@ class API(ModelView):
         except (BadRequest, TypeError, ValueError, OverflowError) as exception:
             # this also happens when request.data is empty
             current_app.logger.exception(str(exception))
-            return dict(msg='Unable to decode data', status=RespCode.DATA_ERROR)
+            return dict(msg='Unable to decode data',
+                        status=RespCode.DATA_ERROR)
 
         # Check if the request is to patch many instances of the current model.
         patchmany = instid is None
@@ -1547,60 +1732,100 @@ class API(ModelView):
 
         # Check for any request parameter naming a column which does not exist
         # on the current model.
-        for field in data:
-            if not has_field(self.model, field):
-                msg = "Model does not have field '{0}'".format(field)
-                return dict(msg=msg, status=RespCode.DATA_ERROR)
-
+        if self.db_type == 'sqlorm':
+            for field in data:
+                if not has_field(self.model, field):
+                    msg = "Model does not have field '{0}'".format(field)
+                    return dict(msg=msg, status=RespCode.DATA_ERROR)
+        elif self.db_type == 'mongo':
+            # TODO: validate mongo put data...
+            pass
+        num_modified = 0
         if patchmany:
             try:
-                # create a SQLALchemy Query from the query parameter `q`
-                query = search(self.model, search_params)
+                if self.db_type == 'sqlorm':
+                    # create a SQLALchemy Query from the query parameter `q`
+                    query = search(self.model, search_params)
+                elif self.db_type == 'mongo':
+                    filters = QueryBuilder.create_mongokit_filters(
+                        self.model, search_params)
+                    modified = self.session.collection.update(
+                        filters, {'$set': data}, multi=True, safe=True)
+                    num_modified = modified['n']
+            except PyMongoError as exception:
+                current_app.logger.exception(str(exception))
+                return dict(msg='Mongo OperationalError',
+                            status=RespCode.DATA_ERROR)
+            except SQLAlchemyError as exception:
+                current_app.logger.exception(str(exception))
+                return dict(msg='Unable to construct query',
+                            status=RespCode.DATA_ERROR)
             except Exception as exception:
                 current_app.logger.exception(str(exception))
-                return dict(msg='Unable to construct query', status=RespCode.DATA_ERROR)
+                return dict(msg='Data Error', status=RespCode.DATA_ERROR)
         else:
-            # create a SQLAlchemy Query which has exactly the specified row
-            query = query_by_primary_key(self.session, self.model, instid,
-                                         self.primary_key)
-            if query.count() == 0:
-                return {'msg': 'no query result', 'status': RespCode.DATA_ERROR}
-            assert query.count() == 1, 'Multiple rows with same ID'
+            if self.db_type == 'sqlorm':
+                # create a SQLAlchemy Query which has exactly the specified row
+                query = query_by_primary_key(self.session, self.model, instid,
+                                             self.primary_key)
+                if query.count() == 0:
+                    return {'msg': 'no query result',
+                            'status': RespCode.DATA_ERROR}
+                assert query.count() == 1, 'Multiple rows with same ID'
 
-        try:
-            relations = self._update_relations(query, data)
-        except self.validation_exceptions as exception:
-            current_app.logger.exception(str(exception))
-            return self._handle_validation_exception(exception)
-        field_list = frozenset(data) ^ relations
-        data = dict((field, data[field]) for field in field_list)
+                try:
+                    relations = self._update_relations(query, data)
+                except self.validation_exceptions as exception:
+                    current_app.logger.exception(str(exception))
+                    return self._handle_validation_exception(exception)
+                field_list = frozenset(data) ^ relations
+                data = dict((field, data[field]) for field in field_list)
 
-        # Special case: if there are any dates, convert the string form of the
-        # date into an instance of the Python ``datetime`` object.
-        data = strings_to_dates(self.model, data)
+                # Special case: if there are any dates, convert the string
+                # form of the
+                # date into an instance of the Python ``datetime`` object.
+                data = strings_to_dates(self.model, data)
 
-        try:
-            # Let's update all instances present in the query
-            num_modified = 0
-            self.session.begin()
-            if data:
-                for item in query.all():
-                    for field, value in data.items():
-                        setattr(item, field, value)
-                    num_modified += 1
-            self.session.commit()
-        except self.validation_exceptions as exception:
-            current_app.logger.exception(str(exception))
-            return self._handle_validation_exception(exception)
+                try:
+                    # Let's update all instances present in the query
+                    self.session.begin()
+                    if data:
+                        for item in query.all():
+                            for field, value in data.items():
+                                setattr(item, field, value)
+                            num_modified += 1
+                    self.session.commit()
+                except self.validation_exceptions as exception:
+                    current_app.logger.exception(str(exception))
+                    return self._handle_validation_exception(exception)
+            elif self.db_type == 'mongo':
+                ftype = self.model.structure.get('_id', ObjectId)
+                try:
+                    data['_id'] = ftype(instid)
+                    doc = self.session()
+                    doc.update(data)
+                    doc.save()
+                except Exception as e:
+                    current_app.logger.exception(e)
+                    return {'status': RespCode.DATA_ERROR,
+                            'msg': 'Save data error'}
 
         # Perform any necessary postprocessing.
         if patchmany:
-            result = dict(status=RespCode.OK, data={'num_modified': num_modified})
+            result = dict(status=RespCode.OK,
+                          data={'num_modified': num_modified})
+            if self.db_type == 'mongo':
+                query = self.session
             for postprocessor in self.postprocessors['PATCH_MANY']:
                 postprocessor(query=query, result=result,
                               search_params=search_params)
         else:
-            result = dict(status=RespCode.OK, data=self._instid_to_dict(instid))
+            if self.db_type == 'sqlorm':
+                data = self._instid_to_dict(instid)
+            else:
+                data = dict(data)
+            result = dict(status=RespCode.OK,
+                          data=data)
             for postprocessor in self.postprocessors['PATCH_SINGLE']:
                 postprocessor(result=result)
 

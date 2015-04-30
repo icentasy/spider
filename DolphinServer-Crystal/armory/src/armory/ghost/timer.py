@@ -8,6 +8,7 @@
 """
 from __future__ import absolute_import
 
+import time
 import logging
 import threading
 from functools import wraps
@@ -24,6 +25,7 @@ platforms.C_FORCE_ROOT = True
 
 
 class ArmoryCron(object):
+
     """Cron job class of Armory, singleton
     """
     __instance = None
@@ -36,15 +38,14 @@ class ArmoryCron(object):
 
     @staticmethod
     def getInstance(broker='redis://localhost:6379/1'):
-        ArmoryCron.__lock.acquire()
-        if ArmoryCron.__instance is None:
-            instance = object.__new__(ArmoryCron)
-            instance.celery_app = Celery('ArmoryCronjob', broker=broker)
-            instance.celery_app.conf.update(
-                CELERYBEAT_SCHEDULE={}
-            )
-            ArmoryCron.__instance = instance
-        ArmoryCron.__lock.release()
+        with ArmoryCron.__lock:
+            if ArmoryCron.__instance is None:
+                instance = object.__new__(ArmoryCron)
+                instance.celery_app = Celery('ArmoryCronjob', broker=broker)
+                instance.celery_app.conf.update(
+                    CELERYBEAT_SCHEDULE={}
+                )
+                ArmoryCron.__instance = instance
         return ArmoryCron.__instance
 
     def timer(self, run_every=None):
@@ -110,6 +111,9 @@ class ArmoryCron(object):
         """This function used to run the hydralisk application.
         here we drive celery to run cron-job by conf
         """
+        # sleep to setup daemon process of celery
+        time.sleep(20)
+        print 'start celery worker...'
         worker_proc = Process(target=self._start_worker, args=(worker_num,))
         worker_proc.start()
 
@@ -124,7 +128,7 @@ if __name__ == "__main__":
     cron_job = ArmoryCron.getInstance()
     # Executes every morning 10:00 A.M in UTC timezone
 
-    @cron_job.timer(run_every=('0 10 * * *'))
+    @cron_job.timer(run_every=('31 2 * * *'))
     def test_cron():
         print 'cron job start...'
 

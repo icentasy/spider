@@ -19,6 +19,7 @@ from sqlalchemy import and_ as AND
 from sqlalchemy import or_ as OR
 from sqlalchemy.ext.associationproxy import AssociationProxy
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+from mongokit import ObjectId, Document
 
 from .helpers import get_related_association_proxy_model
 from multalisk.utils.exception import ParamError
@@ -36,9 +37,8 @@ def _valid_orm_field(model, fieldname, relation):
 
 def _valid_mongo_field(model, fieldname):
     """check validation of the field in mongo model
-    NOT IMPLEMENT
     """
-    return True
+    return fieldname in model.structure
 
 
 def _valid_sql_field(model, fieldname):
@@ -135,8 +135,8 @@ MONGO_OPERATORS = {
     'lte': lambda f, a: {f: {'$lte': a}},
     'leq': lambda f, a: {f: {'$lte': a}},
     'like': lambda f, a: {f: {'$regex': _escape_regex(a)}},
-    'in': lambda f, a: {f: {'$in': a.split(',')}},
-    'not_in': lambda f, a: {f: {'$nin': a.split(',')}},
+    'in': lambda f, a: {f: {'$in': a}},
+    'not_in': lambda f, a: {f: {'$nin': a}},
 }
 
 
@@ -215,6 +215,15 @@ class SearchParams(object):
         self.limit = limit
         self.offset = offset
         self.junction = junction
+
+    def __repr__(self):
+        """Returns a string representation of this object."""
+        return '<SearchParams {0} {1} {2}>'.format(self.filters, self.limit,
+                                                   self.offset)
+
+    @staticmethod
+    def inspect_filter(search_filter):
+        return search_filter if search_filter.get('filters') else None
 
     @staticmethod
     def from_dictionary(dictionary):
@@ -323,19 +332,46 @@ class QueryBuilder(object):
         return filters
 
     @staticmethod
-    def _create_mongo_filters(model, search_params):
+    def create_mongokit_filters(model, search_params):
+        if isinstance(search_params, dict):
+            search_params = SearchParams.from_dictionary(search_params)
+
+        search_params.filters = [
+            filt for filt in search_params.filters if
+            '.' in filt.fieldname or filt.fieldname == '_id'
+            or filt.fieldname in model.structure]
+
+        for filt in search_params.filters:
+            fname = filt.fieldname
+            val = filt.argument
+            # FIXME: not support complex search yet
+            if '.' not in fname:
+                # TODO: also add support for `string_to_dates`
+                ftype = model.structure.get(fname, ObjectId)
+                if isinstance(val, list):
+                    filt.argument = [ftype(t) for t in filt.argument]
+                else:
+                    filt.argument = ftype(val)
+        return QueryBuilder._create_mongo_filters(model, search_params, True)
+
+    @staticmethod
+    def _create_mongo_filters(model, search_params, skip_validate=False):
         filters = []
         for filt in search_params.filters:
             fname = filt.fieldname
             val = filt.argument
             # inspect whether the field exists in model
-            # i'll implement this later...
-            if not _valid_mongo_field(model, fname):
+            if not skip_validate and not _valid_mongo_field(model, fname):
                 continue
             create_op = QueryBuilder._create_mongo_operation
             param = create_op(fname, filt.operator, val)
             filters.append(param)
-        return filters
+
+        if filters:
+            op = '$and' if search_params.junction else '$or'
+            return {op: filters}
+        else:
+            return {}
 
     @staticmethod
     def _create_raw_query_str(model, search_params):
@@ -365,11 +401,11 @@ class QueryBuilder(object):
 
     @staticmethod
     def create_query(db_type, model, search_params,
-                     distinct=False, field_name=None, mapped_db=None):
+                     distinct=False, field_name=None, mapped_session=None):
         query = model.query
-        if db_type.endswith('sql'):
+        if db_type.endswith('orm'):
             if distinct:
-                query = mapped_db.session.query(getattr(model, field_name))
+                query = mapped_session.query(getattr(model, field_name))
             filters = QueryBuilder._create_sql_filters(model, search_params)
             if len(filters) > 0:
                 junction = AND if search_params.junction else OR
@@ -382,12 +418,13 @@ class QueryBuilder(object):
             if distinct:
                 query = query.distinct()
         elif db_type.endswith('mongo'):
-            filters = QueryBuilder._create_mongo_filters(model, search_params)
-            cond = {}
-            if len(filters) > 0:
-                op = '$and' if search_params.junction else '$or'
-                cond.update({op: filters})
-            query = query.find(cond)
+            if issubclass(model, Document):
+                filters = QueryBuilder.create_mongokit_filters(
+                    model, search_params)
+            else:
+                filters = QueryBuilder._create_mongo_filters(
+                    model, search_params)
+            query = query.find(filters)
             if search_params.offset:
                 query = query.skip(search_params.offset)
             if search_params.limit:
@@ -425,18 +462,19 @@ def search(model, search_params):
     if isinstance(search_params, dict):
         search_params = SearchParams.from_dictionary(search_params)
 
-    db_type = model.db_type if hasattr(model, 'db_type') else 'mysql'
+    db_type = getattr(model, '__db_type__', 'sqlorm')
     query = QueryBuilder.create_query(db_type, model, search_params)
     return query
 
 
-def distinct_field(mapped_db, model, field_name, search_params={}):
+def distinct_field(model, field_name, search_params={}):
     """This function used for query distinct field by query string
     """
     if isinstance(search_params, dict):
         search_params = SearchParams.from_dictionary(search_params)
-    db_type = model.db_type if hasattr(model, 'db_type') else 'mysql'
+    db_type = getattr(model, '__db_type__', 'sqlorm')
+    mapped_session = getattr(model, '__session__', None)
     query = QueryBuilder.create_query(db_type, model, search_params,
                                       distinct=True, field_name=field_name,
-                                      mapped_db=mapped_db)
+                                      mapped_session=mapped_session)
     return query

@@ -18,7 +18,6 @@ from .helpers import url_for
 from .views import API
 from .views import FunctionAPI
 
-
 READONLY_METHODS = frozenset(('GET', ))
 
 
@@ -38,6 +37,7 @@ class IllegalArgumentError(Exception):
 
 
 class RESTManager(object):
+
     """
     RESTManger class, create RESTful APIs for model
     """

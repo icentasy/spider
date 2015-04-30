@@ -5,6 +5,7 @@
     Helper functions for ORM.
 
 """
+import logging
 import datetime
 import inspect
 import uuid
@@ -26,6 +27,9 @@ from sqlalchemy.orm.query import Query
 from sqlalchemy.sql import func
 from sqlalchemy.sql.expression import ColumnElement
 from sqlalchemy.inspection import inspect as sqlalchemy_inspect
+from mongokit import ObjectId
+
+_LOGGER = logging.getLogger('pylon')
 
 #: Names of attributes which should definitely not be considered relations when
 #: dynamically computing a list of relations of a SQLAlchemy model.
@@ -60,7 +64,7 @@ def partition(l, condition):
 
 
 def session_query(session, model):
-    """Returns a SQLAlchemy query object for the specified `model`.
+    """Returns a query object for the specified `model`.
 
     If `model` has a ``query`` attribute already, ``model.query`` will be
     returned. If the ``query`` attribute is callable ``model.query()`` will be
@@ -98,6 +102,8 @@ def get_columns(model):
     http://docs.sqlalchemy.org/en/latest/orm/extensions/hybrid.html
 
     """
+    if get_db_type(model) == 'mongo':
+        return model.structure
     columns = {}
     for superclass in model.__mro__:
         for name, column in superclass.__dict__.items():
@@ -142,11 +148,17 @@ def get_related_association_proxy_model(attr):
     return None
 
 
+def get_db_type(model):
+    return getattr(model, '__db_type__', 'sqlorm')
+
+
 def has_field(model, fieldname):
     """Returns ``True`` if the `model` has the specified field or if it has a
     settable hybrid property for this field name.
 
     """
+    if get_db_type(model) == 'mongo':
+        return fieldname in model.structure
     descriptors = sqlalchemy_inspect(model).all_orm_descriptors._data
     if fieldname in descriptors and hasattr(descriptors[fieldname], 'fset'):
         return descriptors[fieldname].fset is not None
@@ -154,9 +166,11 @@ def has_field(model, fieldname):
 
 
 def get_field_type(model, fieldname):
-    """Helper which returns the SQLAlchemy type of the field.
+    """Helper which returns the SQLAlchemy type or python type of the field.
 
     """
+    if get_db_type(model) == 'mongo':
+        return model.structure[fieldname]
     field = getattr(model, fieldname)
     if isinstance(field, ColumnElement):
         fieldtype = field.type
@@ -180,7 +194,10 @@ def is_date_field(model, fieldname):
 
     """
     fieldtype = get_field_type(model, fieldname)
-    return isinstance(fieldtype, Date) or isinstance(fieldtype, DateTime)
+    return (isinstance(fieldtype, Date) or
+            isinstance(fieldtype, DateTime) or
+            (inspect.isclass(fieldtype) and
+                issubclass(fieldtype, datetime.datetime)))
 
 
 def is_interval_field(model, fieldname):
@@ -226,6 +243,8 @@ def primary_key_name(model_or_instance):
     """
     its_a_model = isinstance(model_or_instance, type)
     model = model_or_instance if its_a_model else model_or_instance.__class__
+    if get_db_type(model) == 'mongo':
+        return '_id'
     pk_names = primary_key_names(model)
     return 'id' if 'id' in pk_names else pk_names[0]
 
@@ -390,6 +409,199 @@ def to_dict(instance, deep=None, exclude=None, include=None,
     return result
 
 
+def _evaluate_mongo_func(session, model, functions):
+    results = {}
+    for function in functions:
+        funcname, fieldname = function['name'], function['field']
+        name = '{0}__{1}'.format(funcname, fieldname)
+        result = getattr(session, funcname)()
+        results[name] = result
+
+    return results
+
+
+def add_to_relation(model_class, query, relationname, toadd=None):
+    """Adds a new or existing related model to each model specified by
+    `query`.
+
+    This function does not commit the changes made to the database. The
+    calling function has that responsibility.
+
+    `query` is a SQLAlchemy query instance that evaluates to all instances
+    of the model specified in the constructor of this class that should be
+    updated.
+
+    `relationname` is the name of a one-to-many relationship which exists
+    on each model specified in `query`.
+
+    `toadd` is a list of dictionaries, each representing the attributes of
+    an existing or new related model to add. If a dictionary contains the
+    key ``'id'``, that instance of the related model will be
+    added. Otherwise, the :func:`helpers.get_or_create` class method will
+    be used to get or create a model to add.
+
+    """
+    submodel = get_related_model(model_class, relationname)
+    if isinstance(toadd, dict):
+        toadd = [toadd]
+    for dictionary in toadd or []:
+        subinst = get_or_create(submodel, dictionary)
+        try:
+            for instance in query:
+                getattr(instance, relationname).append(subinst)
+        except AttributeError as exception:
+            _LOGGER.exception(str(exception))
+            setattr(instance, relationname, subinst)
+
+
+def remove_from_relation(model_class, query, relationname, toremove=None):
+    """Removes a related model from each model specified by `query`.
+
+    This function does not commit the changes made to the database. The
+    calling function has that responsibility.
+
+    `query` is a SQLAlchemy query instance that evaluates to all instances
+    of the model specified in the constructor of this class that should be
+    updated.
+
+    `relationname` is the name of a one-to-many relationship which exists
+    on each model specified in `query`.
+
+    `toremove` is a list of dictionaries, each representing the attributes
+    of an existing model to remove. If a dictionary contains the key
+    ``'id'``, that instance of the related model will be
+    removed. Otherwise, the instance to remove will be retrieved using the
+    other attributes specified in the dictionary. If multiple instances
+    match the specified attributes, only the first instance will be
+    removed.
+
+    If one of the dictionaries contains a mapping from ``'__delete__'`` to
+    ``True``, then the removed object will be deleted after being removed
+    from each instance of the model in the specified query.
+
+    """
+    submodel = get_related_model(model_class, relationname)
+    session = getattr(model_class, '__session__')
+    for dictionary in toremove or []:
+        remove = dictionary.pop('__delete__', False)
+        if 'id' in dictionary:
+            subinst = get_by(session, submodel, dictionary['id'])
+        else:
+            subinst = submodel.query.filter_by(**dictionary).first()
+        for instance in query:
+            getattr(instance, relationname).remove(subinst)
+        if remove:
+            session.delete(subinst)
+
+
+def set_on_relation(model_class, query, relationname, toset=None):
+    """Sets the value of the relation specified by `relationname` on each
+    instance specified by `query` to have the new or existing related
+    models specified by `toset`.
+
+    This function does not commit the changes made to the database. The
+    calling function has that responsibility.
+
+    `query` is a SQLAlchemy query instance that evaluates to all instances
+    of the model specified in the constructor of this class that should be
+    updated.
+
+    `relationname` is the name of a one-to-many relationship which exists
+    on each model specified in `query`.
+
+    `toset` is either a dictionary or a list of dictionaries, each
+    representing the attributes of an existing or new related model to
+    set. If a dictionary contains the key ``'id'``, that instance of the
+    related model will be added. Otherwise, the
+    :func:`helpers.get_or_create` method will be used to get or create a
+    model to set.
+
+    """
+    submodel = get_related_model(model_class, relationname)
+    if isinstance(toset, list):
+        value = [get_or_create(submodel, d) for d in toset]
+    else:
+        value = get_or_create(submodel, toset)
+    for instance in query:
+        setattr(instance, relationname, value)
+
+
+def update_relations(model_class, query, params):
+    """Adds, removes, or sets models which are related to the model
+    """
+    relations = get_relations(model_class)
+    tochange = frozenset(relations) & frozenset(params)
+    for columnname in tochange:
+        # Check if 'add' or 'remove' is being used
+        if (isinstance(params[columnname], dict)
+                and any(k in params[columnname] for k in ['add', 'remove'])):
+
+            toadd = params[columnname].get('add', [])
+            toremove = params[columnname].get('remove', [])
+            add_to_relation(model_class, query, columnname, toadd=toadd)
+            remove_from_relation(model_class, query, columnname,
+                                 toremove=toremove)
+        else:
+            toset = params[columnname]
+            set_on_relation(model_class, query, columnname, toset=toset)
+
+    return tochange
+
+
+def inst_to_dict(model, inst):
+    """Returns the dictionary representation of the specified instance.
+    """
+    relations = frozenset(get_relations(model))
+    deep = dict((r, {}) for r in relations)
+    return to_dict(inst, deep)
+
+
+def dict_to_inst(model, data):
+    """Returns an instance of the model with the specified attributes."""
+    # Check for any request parameter naming a column which does not exist
+    # on the current model.
+    for field in data:
+        if not has_field(model, field):
+            msg = "Model does not have field '{0}'".format(field)
+            raise Exception(msg)
+
+    # Getting the list of relations that will be added later
+    cols = get_columns(model)
+    relations = get_relations(model)
+
+    # Looking for what we're going to set on the model right now
+    colkeys = cols.keys()
+    paramkeys = data.keys()
+    props = set(colkeys).intersection(paramkeys).difference(relations)
+    # Special case: if there are any dates, convert the string form of the
+    # date into an instance of the Python ``datetime`` object.
+    data = strings_to_dates(model, data)
+
+    # Instantiate the model with the parameters.
+    modelargs = dict([(i, data[i]) for i in props])
+    instance = model(**modelargs)
+
+    # Handling relations, a single level is allowed
+    for col in set(relations).intersection(paramkeys):
+        submodel = get_related_model(model, col)
+
+        if type(data[col]) == list:
+            # model has several related objects
+            for subparams in data[col]:
+                subinst = get_or_create(submodel, subparams)
+                try:
+                    getattr(instance, col).append(subinst)
+                except AttributeError:
+                    attribute = getattr(instance, col)
+                    attribute[subinst.key] = subinst.value
+        else:
+            # model has single related object
+            subinst = get_or_create(submodel, data[col])
+            setattr(instance, col, subinst)
+
+    return instance
+
+
 def evaluate_functions(session, model, functions):
     """Executes each of the SQLAlchemy functions specified in ``functions``, a
     list of dictionaries of the form described below, on the given model and
@@ -430,6 +642,8 @@ def evaluate_functions(session, model, functions):
     """
     if not model or not functions:
         return {}
+    if get_db_type(model) == 'mongo':
+        return _evaluate_mongo_func(session, model, functions)
     processed = []
     funcnames = []
     for function in functions:
@@ -487,12 +701,16 @@ def get_by(session, model, primary_key_value, primary_key=None):
     as the primary key column. Otherwise, the column named ``id`` is used.
 
     """
+    if get_db_type(model) == 'mongo':
+        field_type = model.structure.get('_id', ObjectId)
+        return session.find_one({'_id': field_type(primary_key_value)})
+
     result = query_by_primary_key(session, model, primary_key_value,
                                   primary_key)
     return result.first()
 
 
-def get_or_create(session, model, attrs):
+def get_or_create(model, attrs):
     """Returns the single instance of `model` whose primary key has the
     value found in `attrs`, or initializes a new instance if no primary key
     is specified.
@@ -513,10 +731,10 @@ def get_or_create(session, model, attrs):
         if rel not in attrs:
             continue
         if isinstance(attrs[rel], list):
-            attrs[rel] = [get_or_create(session, get_related_model(model, rel),
+            attrs[rel] = [get_or_create(get_related_model(model, rel),
                                         r) for r in attrs[rel]]
         else:
-            attrs[rel] = get_or_create(session, get_related_model(model, rel),
+            attrs[rel] = get_or_create(get_related_model(model, rel),
                                        attrs[rel])
     # Find private key names
     pk_names = primary_key_names(model)
@@ -530,7 +748,7 @@ def get_or_create(session, model, attrs):
                          if k in pk_names)
         # query for an existing row which matches all the specified
         # primary key values.
-        instance = session_query(session, model).filter_by(**pk_values).first()
+        instance = model.query.filter_by(**pk_values).first()
         if instance is not None:
             assign_attributes(instance, **attrs)
             return instance
@@ -605,6 +823,7 @@ def count(session, query):
 # TODO This code is for simultaneous Python 2 and 3 usage. It can be greatly
 # simplified when removing Python 2 support.
 class _Singleton(type):
+
     """A metaclass for a singleton class."""
 
     #: The known instances of the class instantiating this metaclass.
@@ -619,11 +838,13 @@ class _Singleton(type):
 
 
 class Singleton(_Singleton('SingletonMeta', (object,), {})):
+
     """Base class for a singleton class."""
     pass
 
 
 class UrlFinder(Singleton):
+
     """The singleton class that backs the :func:`url_for` function."""
 
     def __init__(self):
