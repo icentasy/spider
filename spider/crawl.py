@@ -2,11 +2,13 @@
 import sys
 sys.path.append("../")
 import time
+import requests
 import platform
 from selenium import webdriver
 from bs4 import BeautifulSoup
 
 from spider.model.base import City, Deal, save_list, get_city_from_mysql
+from spider.template import get_meishitianxia
 
 if platform.system() == 'Windows':
 	PhantomJS_PATH = r'C:\Users\Administrator\Desktop\phantomjs-2.0.0-windows\bin\phantomjs'
@@ -19,23 +21,35 @@ CITY_LIST = ['wuhan']
 TYPE_LIST = ['meishitianxia']
 
 def init_driver():
-	return webdriver.PhantomJS(executable_path=PhantomJS_PATH)
-
+	client =  webdriver.PhantomJS(executable_path=PhantomJS_PATH)
+	client.set_page_load_timeout(60)
+	return client
 
 def driver_quit(driver):
-	driver.quit()
-	
+	driver.quit()	
 
-def download_source(driver, url):
-	driver.set_page_load_timeout(60)
-	while True:
-		try:
-			driver.get(url)
-			break
-		except Exception:
-			print 'time out'
-			continue
-	return driver.page_source
+def download_source(url, driver=None, is_JS=True):
+	if is_JS:
+		print 'use phantomjs'
+		if not driver:
+			driver = init_driver()
+		while True:
+			try:
+				driver.get(url)
+				break
+			except Exception:
+				print 'time out'
+			return driver.page_source
+	else:
+		print 'not use phantomjs'
+		res = None
+		while True:
+			try:
+				res = requests.get(url, timeout=5)
+				break
+			except Exception:
+				print 'time out'
+		return res.text
 
 
 def get_city_list(source):
@@ -52,12 +66,13 @@ def get_city_list(source):
 	return res_list
 
 
-def get_out_link(source):
-	soup = BeautifulSoup(source)
+def get_out_link(url):
+	res = requests.get(url, timeout=5)
+	soup = BeautifulSoup(res.text)
 	return soup.find('noframes').find('a').attrs['href']
 
 
-def get_content(source, city, _type, driver):
+def get_content(source, city, _type):
 	res = []
 	try:
 		soup = BeautifulSoup(source)
@@ -67,7 +82,7 @@ def get_content(source, city, _type, driver):
 		for deal_div in deal_divs:
 			try:
 				deal_dic = {}
-				deal_dic['image'] = deal_div.find('img').attrs['src']
+				deal_dic['image'] = deal_div.find('img').attrs['data-original']
 				deal_dic['title'] = deal_div.find('div', attrs={'class': 'sitetpy'}).find('a').text
 				info = deal_div.find('div', attrs={'class': 'info info2'})
 				if not info:
@@ -75,7 +90,7 @@ def get_content(source, city, _type, driver):
 				deal_dic['source'] = info.find('h4').text
 				out_link = info.find('a', attrs={'rel': 'nofollow'})
 				deal_dic['detail'] = out_link.text
-				deal_dic['out_link'] = out_link.attrs['href']
+				deal_dic['out_link'] = get_out_link(out_link.attrs['href'])
 				deal_dic['new_price'] = deal_div.find('h5').find('b').text
 				deal_dic['old_price'] = deal_div.find('h5').find('em').text[3:]
 				deal_dic['location'] = deal_div.find('h6').text
@@ -117,7 +132,16 @@ def begin_from_to(items, from_city, to_city='zz'):
 
 
 if __name__ == '__main__':
-	driver = init_driver()
+	args = sys.argv
+	print len(args)
+	if len(args) >=2:
+		if args[1] == 'phantomjs':
+			is_JS = True
+		else:
+			is_JS = False
+	else:
+		is_JS = False
+
 	last_request = 0
 	
 	for city_dic in begin_from_to(get_city_from_mysql(), 'anshan', 'aomen'):
@@ -131,10 +155,10 @@ if __name__ == '__main__':
 					if temp_time < 5:
 						time.sleep(5 - temp_time)
 
-					source = download_source(driver, crawl_url % (pinyin, _type, i))
+					source = download_source(crawl_url % (pinyin, _type, i), is_JS=is_JS)
 					print crawl_url % (pinyin, _type, i)
 					last_request = time.time()
-					res, last_page = get_content(source, pinyin, _type, driver)
+					res, last_page = get_content(source, pinyin, _type)
 					if res:
 						save_list(Deal, res)
 					else:

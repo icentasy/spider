@@ -1,7 +1,7 @@
 import sys
-#sys.path.append("../../")
-from sqlalchemy import Column
-from sqlalchemy.types import VARCHAR, Integer, Float
+sys.path.append("../../")
+from sqlalchemy import Column, and_
+from sqlalchemy.types import VARCHAR, Integer, Float, Date, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 
 from spider.model import engine, session
@@ -30,7 +30,8 @@ class Deal(BaseModel):
     city = Column(VARCHAR(255))
     type = Column(VARCHAR(255))
     type_detail = Column(VARCHAR(255))
-    invalid_time = Column(VARCHAR(255))
+    invalid_time = Column(Date)
+    is_show = Column(Boolean, default=True)
 
 
 class City(BaseModel):
@@ -49,6 +50,17 @@ def save_list(table, content_list):
     except Exception as e:
         return False
 
+def update_deal(cond_key, cond_value, data):
+    session.query(Deal).filter(cond_key == cond_value).update(data)
+    session.commit()
+
+def excute_sql(sql):
+    try:
+        session.execute(sql)
+        session.commit()
+    except Exception as e:
+        print e
+
 def get_city_from_mysql():
     return session.query(City).all()
 
@@ -56,3 +68,6 @@ init_db()
 
 if __name__ == '__main__':
     init_db()
+    res = session.query(Deal.out_link)
+    for i in res:
+        print i

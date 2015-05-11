@@ -1,4 +1,5 @@
 *.pyc
+*.log
 *.usr.cfg
 *.tmp
 .pre-commit-config.yaml
