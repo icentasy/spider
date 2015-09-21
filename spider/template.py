@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
+from spider.model.deal import Deal
+from spider.model.city import City
 
 def get_city_list(source):
     soup = BeautifulSoup(source)
@@ -8,7 +10,11 @@ def get_city_list(source):
     for dl in lists:
         first_char = dl.find('span').text
         for city in dl.findAll('a'):
-            citys.append({'first_char': first_char, 'pinyin': city.attrs['city'], 'name': city.text})
+            res_city = City()
+            res_city.first_char = first_char
+            res_city.pinyin = city.attrs['city']
+            res_city.name = city.text
+            citys.append(res_city)
     return citys
 
 
@@ -42,28 +48,28 @@ def get_hotel(source, city, deal_type):
         print "get divs error, error: %s" % e
     for deal in deal_divs:
         try:
-            deal_dic = {}
-            deal_dic['id'] = deal.attrs['data-id']
+            res_deal = Deal()
+            res_deal.id = deal.attrs['data-id']
             img = deal.find('h3').find('img').attrs
             if 'data-original' in img:
-                deal_dic['image'] = img['data-original']
+                res_deal.image = img['data-original']
             elif 'src' in img:
-                deal_dic['image'] = img['src']
+                res_deal.image = img['src']
             else:
                 break
-            deal_dic['title'] = deal.find('h5').find('a').text
-            deal_dic['source'] = deal.find('div', attrs={'class': 'info'}).find('h4').find('a').text
-            deal_dic['detail'] = deal.find('div', attrs={'class': 'info'}).find('a', attrs={'rel': 'nofollow'}).attrs['title']
-            deal_dic['out_link'] = deal.find('h2').find('a').attrs['href']
-            deal_dic['new_price'] = deal.find('h2').find('span').find('em').find('b').text
+            res_deal.title = deal.find('h5').find('a').text
+            res_deal.source = deal.find('div', attrs={'class': 'info'}).find('h4').find('a').text
+            res_deal.detail = deal.find('div', attrs={'class': 'info'}).find('a', attrs={'rel': 'nofollow'}).attrs['title']
+            res_deal.out_link = deal.find('h2').find('a').attrs['href']
+            res_deal.new_price = deal.find('h2').find('span').find('em').find('b').text
             old_price = deal.find('h2').find('span').find('i').find('b').text
-            deal_dic['old_price'] = old_price[old_price.find(u'￥') + 1:]
+            res_deal.old_price = old_price[old_price.find(u'￥') + 1:]
             location = deal.find('h5').find('em')
             if location:
-                deal_dic['location'] = location.text
-            deal_dic['city'] = city
-            deal_dic['type'] = deal_type
-            res.append(deal_dic)
+                res_deal.location = location.text
+            res_deal.city = city
+            res_deal.type = deal_type
+            res.append(res_deal)
         except Exception as e:
             print "get dict error, error: %s" % e
     return res
@@ -81,23 +87,24 @@ def get_meishitianxia(source, city, deal_type):
         print "get divs error, error: %s" % e
     for deal_div in deal_divs:
         try:
-            deal_dic = {}
-            deal_dic['id'] = deal_div.attrs['info'].split(',')[1]
-            deal_dic['image'] = deal_div.find('img').attrs['data-original']
-            deal_dic['title'] = deal_div.find('div', attrs={'class': 'sitetpy'}).find('a').text
+            res_deal = Deal()
+            res_deal.id = deal_div.attrs['info'].split(',')[1]
+            res_deal.image = deal_div.find('img').attrs['data-original']
+            res_deal.title = deal_div.find('div', attrs={'class': 'sitetpy'}).find('a').text
             info = deal_div.find('div', attrs={'class': 'info info2'})
             if not info:
                 info = deal_div.find('div', attrs={'class': 'info'})
-            deal_dic['source'] = info.find('h4').find('a').text
+            res_deal.source = info.find('h4').find('a').text
             out_link = info.find('a', attrs={'rel': 'nofollow'})
-            deal_dic['detail'] = out_link.text
-            deal_dic['out_link'] = out_link.attrs['href']
-            deal_dic['new_price'] = deal_div.find('h5').find('b').text
-            deal_dic['old_price'] = deal_div.find('h5').find('em').text[3:]
-            deal_dic['location'] = deal_div.find('h6').text
-            deal_dic['city'] = city
-            deal_dic['type'] = deal_type
-            res.append(deal_dic)
+            res_deal.detail = out_link.text
+            res_deal.out_link = out_link.attrs['href']
+            res_deal.new_price = deal_div.find('h5').find('b').text
+            res_deal.old_price = deal_div.find('h5').find('em').text[3:]
+            res_deal.location = deal_div.find('h6').text
+            res_deal.city = city
+            res_deal.type = deal_type
+            res.append(res_deal)
+            print "city is : %s" % city
         except Exception as e:
             print "get dict error, error: %s" % e
     return res
@@ -106,7 +113,7 @@ def get_meishitianxia(source, city, deal_type):
 def get_out_link(source):
     soup = BeautifulSoup(source)
     out_link = soup.find('noframes').find('a').attrs['href']
-    print 'outlink:'+out_link
+    # print 'outlink:'+out_link
     return out_link
 
 

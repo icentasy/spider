@@ -16,7 +16,7 @@ from tuangou.settings import API_PREF
 _LOGGER = logging.getLogger(__name__)
 
 API_DEAL = API_PREF + '/deal/<city>/<dealtype>'
-
+# API_SEARCH = API_PREF + "/deal/<city>/<dealtype>"
 
 @app.route(API_DEAL, methods=['GET', ])
 @access_control

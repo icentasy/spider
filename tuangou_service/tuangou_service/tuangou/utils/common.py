@@ -5,6 +5,7 @@ from tuangou.settings import PAGE_LIMIT
 from tuangou.utils.constant import PARAM_OPTION_LIST
 
 from armory.marine.respcode import PARAM_ERROR, UNKNOWN_ERROR
+from armory.marine.exception import *
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,7 +89,8 @@ def get_valid_params(query_dict, keys):
             else:
                 if param_type is not None:
                     try:
-                        param_value = _conv(eval(param_type))(param_value)
+                        if param_type != 'str':
+                            param_value = _conv(eval(param_type))(param_value)
                     except Exception as e:
                         raise ParamError(param_key)
             result[param_key] = param_value

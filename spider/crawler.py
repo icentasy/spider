@@ -4,11 +4,19 @@ sys.path.append("../")
 import time
 import requests
 import urllib2
+import traceback
 from bs4 import BeautifulSoup
 
-from spider.model.base import City, Deal, save_list, get_city_from_mysql, excute_sql
+from spider.model.city import City
+from spider.model.deal import Deal
+from spider.model.base import save_list, get_city_from_mysql, insert, update
 from spider.queue import RedisQueue
 from spider.template import *
+from spider.mongo.base import *
+
+from spider import mmseg
+
+mmseg.dict_load_defaults()
 
 crawl_url = 'http://www.tuan800.com/%s/%s/page/%i'
 new_crawl_url = 'http://%s.tuan800.com/%s/page/%i'
@@ -18,27 +26,31 @@ TYPE_LIST = ['jiudian', 'meishitianxia', 'shenghuoyule', 'shenghuo']
 
 def get_source(url, rsp_obj=False):
     res = None
-    while True:
+    for i in xrange(3):
         try:
-            res = requests.get(url, timeout=5)
+            res = requests.get(url, timeout=5*(i+1))
             break
-        except Exception:
-            print 'time out'
+        except Exception as e:
+            print 'time out:' + url
     if rsp_obj:
         return res
-    else:            
-        return res.text
+    else:
+        try:
+            return res.text
+        except Exception as e:
+            return None
+        
 
 def save_city_list():
     res = get_city_list(get_source(city_list_url))
-    save_list(City, res)
+    save_list(res)
 
 
 def return_city_list():
     res_list = []
     res = get_city_list(get_source(city_list_url))
     for city in res:
-        res_list.append(city.get('pinyin'))
+        res_list.append(city.pinyin)
     return res_list
 
 
@@ -78,8 +90,10 @@ def push_url_to_queue(from_city, to_city):
 def update_outlink(outlink):
     source = get_source(outlink)
     new_outlink = get_out_link(source)
-    sql = 'update deal set out_link="%s" where out_link="%s"' % (new_outlink, outlink)
-    excute_sql(sql)
+    data = {"out_link": new_outlink}
+    deal = Deal()
+    deal.out_link = outlink
+    update(deal, data, "out_link")
     q = RedisQueue('detail')
     q.put(new_outlink)
 
@@ -101,15 +115,25 @@ def update_detail(url):
             res = get_lashouwang_detail(source)
         else:
             return
-        data = {}
-        set_sql = []
-        for item in res:
-            set_sql.append('%s="%s"' % (item, res[item]))
-        sql = 'update deal set %s where out_link="%s"' % (','.join(set_sql), url)
-        excute_sql(sql)
+        deal = Deal()
+        deal.out_link = url
+        id = update(deal, res, "out_link")
+        update_index(id, res.get("detail"))
     except Exception as e:
+        print traceback.format_exc()
         print 'get tuangou detail error, error: %s' % e
-    
+
+
+def update_index(id, detail):
+    if id and detail:
+        algor = mmseg.Algorithm(detail.encode('utf8'))
+        for tok in algor:
+            # print tok.text
+            if is_exists("index", {"key": tok.text}):
+                mongo_update("index", {"key": tok.text}, {"arrays": id})
+            else:
+                add("index", {"key": tok.text, "arrays": [id]})
+
 
 def start_crawl(from_city, to_city):
     q_common = RedisQueue('common')
@@ -130,9 +154,9 @@ def start_crawl(from_city, to_city):
         source = get_source(url)
         split_res = url.split('/')
         deal_type = split_res[-3]
-        pinyin = split_res[-4]
-        print deal_type
-        print pinyin
+        pinyin = split_res[-4].split('.')[0]
+        # print deal_type
+        # print pinyin
         if deal_type in ['meishitianxia', 'shenghuoyule', 'shenghuo']:
             res = get_meishitianxia(source, pinyin, deal_type)
         elif deal_type in ['jiudian']:
@@ -140,10 +164,10 @@ def start_crawl(from_city, to_city):
         else:
             res = []
         if res:
-            save_list(Deal, res)
+            save_list(res)
             for item in res:
-                if item.get('out_link'):
-                    q_outlink.put(item.get('out_link'))
+                if item.out_link:
+                    q_outlink.put(item.out_link)
         else:
             print 'fail'
 
