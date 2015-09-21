@@ -1,0 +1,102 @@
+/*
+ * Style tweaks
+ * --------------------------------------------------
+ */
+html,
+body {
+  overflow-x: hidden; /* Prevent scroll on narrow devices */
+}
+body {
+  padding-top: 70px;
+}
+footer {
+  padding: 30px 0;
+}
+
+#cityModal li{
+  display: inline-block;
+  width: 100px;
+}
+#cityModal .list-head{
+  display: block;
+  width: 100%;
+}
+#cityModal .list-item:hover{
+  color: #03f;
+  cursor: pointer;
+}
+
+.side-list{
+  list-style: none;
+}
+
+.item-box .out-link{
+  display:block;
+  white-space:nowrap; 
+  overflow:hidden; 
+  -webkit-text-overflow:ellipsis;
+  -moz-text-overflow:ellipsis;
+  -o-text-overflow:ellipsis;
+  text-overflow:ellipsis;
+}
+
+.item-box .thumbimg{
+  width: 100%;
+  height: 200px;
+}
+.item-box .new-price{
+  color:red;
+}
+
+.item-box .old-price{
+  float: left;
+  text-decoration: line-through;
+}
+.item-box .item-source{
+  float: right;
+}
+
+/*
+ * Off Canvas
+ * --------------------------------------------------
+ */
+@media screen and (max-width: 767px) {
+  .row-offcanvas {
+    position: relative;
+    -webkit-transition: all .25s ease-out;
+         -o-transition: all .25s ease-out;
+            transition: all .25s ease-out;
+  }
+
+  .row-offcanvas-right {
+    right: 0;
+  }
+
+  .row-offcanvas-left {
+    left: 0;
+  }
+
+  .row-offcanvas-right
+  .sidebar-offcanvas {
+    right: -50%; /* 6 columns */
+  }
+
+  .row-offcanvas-left
+  .sidebar-offcanvas {
+    left: -50%; /* 6 columns */
+  }
+
+  .row-offcanvas-right.active {
+    right: 50%; /* 6 columns */
+  }
+
+  .row-offcanvas-left.active {
+    left: 50%; /* 6 columns */
+  }
+
+  .sidebar-offcanvas {
+    position: absolute;
+    top: 0;
+    width: 50%; /* 6 columns */
+  }
+}

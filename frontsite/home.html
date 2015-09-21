@@ -1,0 +1,59 @@
+<p class="pull-right visible-xs">
+	<button type="button" class="btn btn-primary btn-xs" data-toggle="offcanvas">菜单→</button>
+</p>
+<div class="row">
+  <div ng-show="items == 0">
+    <h2>没有查询到结果</h2>
+  </div>
+	<div class="col-xs-6 col-lg-4 item-box" ng-repeat="i in items" >
+	  <a href="{{i.out_link}}" class="out-link" target="_blank"><h3>{{i.detail}}</h3></a>
+	  <img class="thumbimg" src="{{i.image}}"></img>
+    <h4 class="new-price">现价:<span>{{i.new_price}}元</span></h4>
+	  <p class="old-price">原价:<span>{{i.old_price}}元</span></p>
+	  <p class="item-source">来自&nbsp;<span>{{i.source}}</span></p>
+	</div><!--/.col-xs-6.col-lg-4-->
+</div><!--/row-->
+<nav ng-show="(itemLoaded == true)">
+  <ul class="pagination">
+  	<li>
+  		<a href="#/?category={{category}}&order={{order}}&page=">first</a>
+  	</li>
+    <li ng-show="(page-1 > 0)">
+      <a href="#/?category={{category}}&order={{order}}&page={{page-1}}" aria-label="Previous">
+        <span aria-hidden="true">&laquo;</span>
+      </a>
+    </li>
+    <li ng-show="(page-1 > 0)">
+    	<a href="#/?category={{category}}&order={{order}}&page={{page-1}}">{{page-1}}</a>
+    </li>
+    <li class="active"><a href="#/?category={{category}}&order={{order}}&page={{page}}">{{page}}</a></li>
+	<li ng-show="(page+1 <= total)">
+	  	<a href="#/?category={{category}}&order={{order}}&page={{page+1}}">{{page+1}}</a>
+	</li>
+    <li ng-show="(page < total)">
+      <a href="#/?category={{category}}&order={{order}}&page={{page+1}}" aria-label="Next">
+        <span aria-hidden="true">&raquo;</span>
+      </a>
+    </li>
+    <li>
+    	<a href="#/?category={{category}}&order={{order}}&page={{total}}">end</a>
+    </li>
+  </ul>
+</nav>
+<script type="text/javascript">
+setTimeout(function(){
+  $('.cities-list').delegate('.list-item','click',function () {
+    window.location.href = '#/?city='+this.id;
+    $("#currCity").text($(this).text());
+    $('#cityModal').modal('hide');
+    // alert("hello")
+  });
+  // console.log('onselectCity');
+},2000);
+// window.onload = function(){  
+// $('.cities-list').delegate('.list-item','click',function () {
+//   console.log(this);
+//   // alert("hello")
+// });
+// }
+</script>

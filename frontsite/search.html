@@ -1,0 +1,41 @@
+<p class="pull-right visible-xs">
+	<button type="button" class="btn btn-primary btn-xs" data-toggle="offcanvas">菜单→</button>
+</p>
+<div class="row">
+	<div class="col-xs-6 col-lg-4" ng-repeat="i in items" >
+	  <h2>{{i.detail}}</h2>
+	  <img src="{{i.image}}"></img>
+	  <p>old price:<span>{{i.old_price}}</span></p>
+	  <p>now:<span>{{i.new_price}}</span></p>
+	  <p>source:<span>{{i.source}}</span></p>
+	  <p><a class="btn btn-default" href="{{i.out_link}}" role="button">View details »</a></p>
+	</div><!--/.col-xs-6.col-lg-4-->
+</div><!--/row-->
+<nav>
+  <ul class="pagination">
+  	<li>
+  		<a href="#/search?category={{category}}&order={{order}}&page=">first</a>
+  	</li>
+    <li ng-show="(page-1 > 0)">
+      <a href="#/search?category={{category}}&order={{order}}&page={{page-1}}" aria-label="Previous">
+        <span aria-hidden="true">&laquo;</span>
+      </a>
+    </li>
+    <li ng-show="(page-1 > 0)">
+    	<a href="#/search?category={{category}}&order={{order}}&page={{page-1}}">{{page-1}}</a>
+    </li>
+    <li class="active"><a href="#/search?category={{category}}&order={{order}}&page={{page}}">{{page}}</a></li>
+	<li ng-show="(page+1 <= total)">
+	  	<a href="#/search?category={{category}}&order={{order}}&page={{page+1}}">{{page+1}}</a>
+	</li>
+    <li ng-show="(page < total)">
+      <a href="#/search?category={{category}}&order={{order}}&page={{page+1}}" aria-label="Next">
+        <span aria-hidden="true">&raquo;</span>
+      </a>
+    </li>
+    <li>
+    	<a href="#/search?category={{category}}&order={{order}}&page={{total}}">end</a>
+    </li>
+  </ul>
+</nav>
+
