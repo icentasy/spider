@@ -6,6 +6,8 @@ from tuangou.utils.common import schema_mapping
 from tuangou import settings
 from tuangou.mongo.base import get
 
+# from tuangou.settings import STOPWORD
+
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_SIZE = 30

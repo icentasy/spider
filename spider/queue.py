@@ -39,6 +39,8 @@ class RedisQueue(object):
         """Equivalent to get(False)."""
         return self.get(False)
 
+    def clear(self):
+        return self.__db.delete(self.key)
 
 if __name__ == '__main__':
     q = RedisQueue('test')
@@ -46,3 +48,7 @@ if __name__ == '__main__':
     q.put('b')
     print q.get()
     print q.get()
+    q.put('c')
+    print q.size()
+    q.clear()
+    print q.size()

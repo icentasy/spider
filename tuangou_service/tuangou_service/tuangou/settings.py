@@ -72,3 +72,10 @@ LOGGING_DICT = {
 
 # lastly, config logging
 logging.config.dictConfig(LOGGING_DICT)
+
+# from  os.path import join, dirname
+# STOPWORD = []
+# with open(join(dirname(__file__), "mmseg", "stopword.txt")) as file:
+#     lines = file.readlines()
+#     for line in lines:
+#         STOPWORD.append(line)

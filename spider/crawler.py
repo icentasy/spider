@@ -15,6 +15,7 @@ from spider.template import *
 from spider.mongo.base import *
 
 from spider import mmseg
+from spider.settings import CRAWLER_LEVEL
 
 mmseg.dict_load_defaults()
 
@@ -170,6 +171,12 @@ def start_crawl(from_city, to_city):
                     q_outlink.put(item.out_link)
         else:
             print 'fail'
+
+
+def manage_crawler():
+    if CRAWLER_LEVEL == 0:
+        pass
+
 
 if __name__ == '__main__':
     #push_url_to_queue('a', 'ac')
